@@ -5,11 +5,6 @@ _min_copier_version: "9.0.0"
 _subdirectory: template
 _answers_file: .copier-answers.yml
 
-# ユーザーがカスタマイズした可能性があるファイルは上書きしない
-_skip_if_exists:
-  - ".claude/rules/*"
-  - "CLAUDE.md"
-
 # 条件分岐による除外
 _exclude:
   - "{% if not install_claude %}.claude{% endif %}"
