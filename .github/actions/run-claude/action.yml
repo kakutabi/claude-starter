@@ -121,18 +121,21 @@ runs:
         echo "tools=$TOOLS" >> $GITHUB_OUTPUT
 
     - name: Run Claude Code Action (Custom token mode)
-      if: steps.trigger.outputs.triggered == 'true' && inputs.mention_type == 'claude' && (inputs.claude_github_token != '' || inputs.github_token != '')
+      if: steps.trigger.outputs.triggered == 'true' && inputs.mention_type == 'claude' && inputs.claude_github_token != ''
       uses: anthropics/claude-code-action@v1
       with:
-        github_token: ${{ inputs.claude_github_token || inputs.github_token }}
+        github_token: ${{ inputs.claude_github_token }}
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
         claude_args: >-
           --model ${{ steps.opts.outputs.model }}
           --max-turns ${{ steps.opts.outputs.max_turns }}
           ${{ steps.tools.outputs.tools }}
 
+    # App mode: claude_github_token 未指定時は claude-code-action の GitHub App を使用。
+    # App トークンで push すると後続ワークフロー（レビュー等）がトリガーされる。
+    # GITHUB_TOKEN で push すると GitHub の仕様により後続ワークフローがトリガーされない。
     - name: Run Claude Code Action (App mode)
-      if: steps.trigger.outputs.triggered == 'true' && inputs.mention_type == 'claude' && inputs.claude_github_token == '' && inputs.github_token == ''
+      if: steps.trigger.outputs.triggered == 'true' && inputs.mention_type == 'claude' && inputs.claude_github_token == ''
       uses: anthropics/claude-code-action@v1
       with:
         claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
