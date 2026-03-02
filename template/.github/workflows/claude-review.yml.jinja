@@ -83,7 +83,7 @@ jobs:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
-{% endraw %}          model: '{{ auto_review_default_model }}'
+{% endraw %}          model: '{{ claude_model }}'
           max_turns: '{{ review_max_turns }}'
 {% raw %}          # prompt: '/review'
 {% endraw %}
