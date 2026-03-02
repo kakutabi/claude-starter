@@ -51,12 +51,8 @@ inputs:
     description: "作成するブランチの接頭辞"
     required: false
     default: "codex/"
-  model:
-    description: "Codex で使用するモデル名（明示的に指定する場合。コメント本文の [model=xxx] より優先）"
-    required: false
-    default: ""
   default_model:
-    description: "デフォルトの Codex モデル（コメントで指定がなく、model も未指定の場合に使用）"
+    description: "デフォルトの Codex モデル（コメント本文で指定がない場合に使用）"
     required: false
     default: "gpt-5.3-codex"
   reasoning_effort:
@@ -90,19 +86,17 @@ runs:
       uses: actions/github-script@v7
       env:
         COMMENT_BODY: ${{ inputs.comment_body }}
-        EXPLICIT_MODEL: ${{ inputs.model }}
         DEFAULT_MODEL: ${{ inputs.default_model }}
         EXPLICIT_REASONING: ${{ inputs.reasoning_effort }}
       with:
         script: |
           const body = process.env.COMMENT_BODY || "";
-          const explicitModel = process.env.EXPLICIT_MODEL || "";
           const defaultModel = process.env.DEFAULT_MODEL || "gpt-5.3-codex";
           const explicitReasoning = process.env.EXPLICIT_REASONING || "";
 
-          // 優先順位: 明示指定 > コメント本文 > デフォルトモデル
-          let model = explicitModel;
-          if (!model && body) {
+          // 優先順位: コメント本文 > デフォルトモデル
+          let model = "";
+          if (body) {
             const modelMatch = body.match(/\[model=([^\]]+)\]/);
             model = modelMatch ? modelMatch[1] : "";
 
