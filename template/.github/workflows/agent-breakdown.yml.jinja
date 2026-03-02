@@ -1,5 +1,5 @@
-{% raw %}name: Claude Plan
-run-name: "claude-plan issue #${{ github.event.issue.number }}"
+{% raw %}name: Agent Breakdown
+run-name: "agent-breakdown issue #${{ github.event.issue.number }}"
 
 on:
   issue_comment:
@@ -13,16 +13,16 @@ permissions:
 
 concurrency:
   group: >-
-    claude-plan-${{ github.event.issue.number }}
+    agent-breakdown-${{ github.event.issue.number }}
     -${{ github.event.comment.user.type == 'Bot' && 'bot' || 'user' }}
   cancel-in-progress: true
 
 jobs:
-  plan:
+  breakdown:
     if: |
       github.event.comment.user.type != 'Bot' &&
       (contains(github.event.comment.body, '@claude') || contains(github.event.comment.body, '@codex')) &&
-      contains(github.event.comment.body, '[plan]')
+      contains(github.event.comment.body, '[breakdown]')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository to access local actions
@@ -34,8 +34,8 @@ jobs:
         id: prep
         uses: Javakky/claude-starter/.github/actions/prepare-claude-context{% endraw %}{{ ref }}{% raw %}
         with:
-          mode: "plan"
-          impl_workflow_id: claude.yml # ←implement ワークフローのファイル名に合わせる
+          mode: "breakdown"
+          impl_workflow_id: agent.yml # implement ワークフローのファイル名に合わせる
           allowed_comment_permissions: "admin,maintain,write"
           max_workflow_runs_to_scan: "50"
 
@@ -46,17 +46,21 @@ jobs:
           echo "trigger_kind=${{ steps.prep.outputs.trigger_kind }}"
           echo "issue_number=${{ steps.prep.outputs.issue_number }}"
           echo "issue_url=${{ steps.prep.outputs.issue_url }}"
+          echo "milestone_number=${{ steps.prep.outputs.milestone_number }}"
+          echo "milestone_title=${{ steps.prep.outputs.milestone_title }}"
 
-      - name: Run Claude (plan)
+      - name: Run Agent (breakdown)
         if: steps.prep.outputs.should_run == 'true'
-        uses: Javakky/claude-starter/.github/actions/run-claude-plan{% endraw %}{{ ref }}{% raw %}
+        uses: Javakky/claude-starter/.github/actions/run-claude-breakdown{% endraw %}{{ ref }}{% raw %}
         with:
           github_token: ${{ github.token }}
           comment_body: ${{ steps.prep.outputs.comment_body }}
           issue_number: ${{ steps.prep.outputs.issue_number }}
+          milestone_number: ${{ steps.prep.outputs.milestone_number }}
+          milestone_title: ${{ steps.prep.outputs.milestone_title }}
           mention_type: ${{ steps.prep.outputs.mention_type }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
 {% endraw %}          default_model: '{{ claude_model }}'
-          default_max_turns: '{{ plan_max_turns }}'
+          default_max_turns: '{{ breakdown_max_turns }}'
