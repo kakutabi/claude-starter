@@ -46,9 +46,13 @@ inputs:
     required: false
     default: "codex/"
   model:
-    description: "Codex で使用するモデル名（例: o4-mini, o3, gpt-4.1）。空の場合はデフォルトモデルを使用"
+    description: "Codex で使用するモデル名（明示的に指定する場合。コメント本文の [model=xxx] より優先）"
     required: false
     default: ""
+  default_model:
+    description: "デフォルトの Codex モデル（コメントで指定がなく、model も未指定の場合に使用）"
+    required: false
+    default: "o4-mini"
   reasoning_effort:
     description: "o-series モデルの推論レベル（low, medium, high）。空の場合はデフォルト"
     required: false
@@ -81,14 +85,16 @@ runs:
       env:
         COMMENT_BODY: ${{ inputs.comment_body }}
         EXPLICIT_MODEL: ${{ inputs.model }}
+        DEFAULT_MODEL: ${{ inputs.default_model }}
         EXPLICIT_REASONING: ${{ inputs.reasoning_effort }}
       with:
         script: |
           const body = process.env.COMMENT_BODY || "";
           const explicitModel = process.env.EXPLICIT_MODEL || "";
+          const defaultModel = process.env.DEFAULT_MODEL || "o4-mini";
           const explicitReasoning = process.env.EXPLICIT_REASONING || "";
 
-          // 明示的な指定がある場合はそちらを優先
+          // 優先順位: 明示指定 > コメント本文 > デフォルトモデル
           let model = explicitModel;
           if (!model && body) {
             const modelMatch = body.match(/\[model=([^\]]+)\]/);
@@ -107,6 +113,11 @@ runs:
                 }
               }
             }
+          }
+
+          // コメント・明示指定のいずれでも指定がなければデフォルトモデルを使用
+          if (!model) {
+            model = defaultModel;
           }
 
           let reasoningEffort = explicitReasoning;
