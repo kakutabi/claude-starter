@@ -136,9 +136,20 @@ runs:
           }
           const compareBaseBranch = String(process.env.COMPARE_BASE_BRANCH || 'master');
 
+          /**
+           * reason 出力のサニタイズ（多層防御）
+           * 下流の workflow で ${{ }} 式として run: ブロック内に展開された場合の
+           * シェルインジェクションを防止する。ユーザー制御可能なデータは含めない。
+           */
+          function sanitizeReason(reason) {
+            if (!reason) return '';
+            // 安全な文字のみ許可（英数字、ハイフン、アンダースコア、コロン、ドット、スペース）
+            return String(reason).replace(/[^a-zA-Z0-9\-_:. ]/g, '').slice(0, 200);
+          }
+
           function setOut(obj) {
             core.setOutput('should_run', obj.should_run ? 'true' : 'false');
-            core.setOutput('reason', obj.reason || '');
+            core.setOutput('reason', sanitizeReason(obj.reason));
             core.setOutput('trigger_kind', obj.trigger_kind || 'none');
 
             core.setOutput('issue_number', obj.issue_number ? String(obj.issue_number) : '');
