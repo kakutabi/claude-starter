@@ -138,13 +138,15 @@ runs:
 
           /**
            * reason 出力のサニタイズ（多層防御）
-           * 下流の workflow で ${{ }} 式として run: ブロック内に展開された場合の
-           * シェルインジェクションを防止する。ユーザー制御可能なデータは含めない。
+           * 下流の workflow で ${{ }} 式として run: ブロック内の
+           * echo "..." に展開された場合のシェルインジェクションを防止する。
+           * 日本語などの Unicode 文字はそのまま保持し、制御文字と
+           * シェルメタ文字のみ除去する。
            */
           function sanitizeReason(reason) {
             if (!reason) return '';
-            // 安全な文字のみ許可（英数字、ハイフン、アンダースコア、コロン、ドット、スペース）
-            return String(reason).replace(/[^a-zA-Z0-9\-_:. ]/g, '').slice(0, 200);
+            // 制御文字（改行含む）とシェルメタ文字を除去。Unicode はそのまま保持
+            return String(reason).replace(/[\x00-\x1f\x7f"'`$\\();&|<>{}!#~]/g, '').slice(0, 200);
           }
 
           function setOut(obj) {
