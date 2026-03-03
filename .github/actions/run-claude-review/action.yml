@@ -343,7 +343,7 @@ runs:
 
     - name: Run Codex
       if: steps.resolve.outputs.mention_type == 'codex'
-      uses: kakutabi/claude-starter/.github/actions/run-codex@master
+      uses: kakutabi/claude-starter/.github/actions/run-codex@0cb81c02427175f215ca8a9263dfe8c27c35bf9b
       with:
         codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
         codex_auth_json: ${{ inputs.codex_auth_json }}
