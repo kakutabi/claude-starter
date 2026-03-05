@@ -69,6 +69,27 @@ jobs:
           ref: ${{ steps.prep.outputs.head_sha }}
           fetch-depth: 0
 
+      # Fork PR の場合、git URL rewriting を使って origin への fetch を Fork にリダイレクト
+      # claude-code-action が git fetch origin <branch> を実行した際に Fork から取得できるようにする
+      - name: Configure git URL rewriting for fork PRs
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.fork_clone_url != ''
+        env:
+          FORK_URL: ${{ steps.prep.outputs.fork_clone_url }}
+        run: |
+          echo "Fork PR detected, configuring URL rewriting"
+          # origin URL を取得
+          ORIGIN_URL=$(git remote get-url origin)
+          echo "Origin URL: $ORIGIN_URL"
+          echo "Fork URL: $FORK_URL"
+          # origin への fetch を fork にリダイレクト
+          # .git 拡張子の有無を考慮
+          ORIGIN_BASE="${ORIGIN_URL%.git}"
+          FORK_BASE="${FORK_URL%.git}"
+          git config url."${FORK_BASE}".insteadOf "${ORIGIN_BASE}"
+          git config url."${FORK_BASE}.git".insteadOf "${ORIGIN_BASE}.git"
+          echo "URL rewriting configured:"
+          git config --get-regexp 'url\..*\.insteadof' || true
+
       - name: Run Agent Review
         if: steps.prep.outputs.should_run == 'true'
         uses: Javakky/claude-starter/.github/actions/run-claude-review@master

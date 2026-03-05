@@ -53,13 +53,33 @@ jobs:
           head_ref: ${{ steps.prep.outputs.head_ref }}
           head_sha: ${{ steps.prep.outputs.head_sha }}
 
-      # PR conversation から呼ばれた場合だけ、そのブランチへ checkout し直す
-      - name: Checkout PR head branch (PR conversation only)
-        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.pr_number != ''
+      # PR conversation から呼ばれた場合、そのブランチへ checkout し直す
+      # Fork PR の場合は actions/checkout では対応できないため、Fork 用の処理で対応
+      - name: Checkout PR head branch (non-fork PR)
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.pr_number != '' && steps.prep.outputs.fork_clone_url == ''
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.prep.outputs.head_ref }}
           fetch-depth: 0
+
+      # Fork PR の場合、git URL rewriting を使って origin への fetch を Fork にリダイレクト
+      - name: Configure git URL rewriting for fork PRs
+        if: steps.prep.outputs.should_run == 'true' && steps.prep.outputs.pr_number != '' && steps.prep.outputs.fork_clone_url != ''
+        env:
+          FORK_URL: ${{ steps.prep.outputs.fork_clone_url }}
+        run: |
+          echo "Fork PR detected, configuring URL rewriting"
+          ORIGIN_URL=$(git remote get-url origin)
+          echo "Origin URL: $ORIGIN_URL"
+          echo "Fork URL: $FORK_URL"
+          ORIGIN_BASE="${ORIGIN_URL%.git}"
+          FORK_BASE="${FORK_URL%.git}"
+          git config url."${FORK_BASE}".insteadOf "${ORIGIN_BASE}"
+          git config url."${FORK_BASE}.git".insteadOf "${ORIGIN_BASE}.git"
+          echo "URL rewriting configured:"
+          git config --get-regexp 'url\..*\.insteadof' || true
+          git fetch origin "${{ steps.prep.outputs.head_ref }}"
+          git checkout -B "${{ steps.prep.outputs.head_ref }}" "origin/${{ steps.prep.outputs.head_ref }}"
 
       # --- プロジェクトの環境設定をここに追加 ---
       # 例: Node.js

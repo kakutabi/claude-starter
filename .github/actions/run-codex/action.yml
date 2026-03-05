@@ -103,6 +103,26 @@ runs:
         app-id: ${{ inputs.app_id }}
         private-key: ${{ inputs.app_private_key }}
 
+    # 1.2. GitHub トークンの可用性チェック
+    # steps.app_token.outputs.token はステップ未実行時に未定義となり != '' の評価が不安定になる
+    # 明示的に有効なトークンを持っているかをチェックする
+    - name: Check GitHub token availability
+      id: gh_token
+      shell: bash
+      env:
+        APP_TOKEN: ${{ steps.app_token.outputs.token }}
+        BOT_TOKEN: ${{ inputs.bot_github_token }}
+        GITHUB_TOKEN_INPUT: ${{ inputs.github_token }}
+      run: |
+        TOKEN="${APP_TOKEN:-${BOT_TOKEN:-${GITHUB_TOKEN_INPUT}}}"
+        if [ -n "$TOKEN" ]; then
+          echo "available=true" >> $GITHUB_OUTPUT
+          echo "GitHub トークン: 利用可能"
+        else
+          echo "available=false" >> $GITHUB_OUTPUT
+          echo "GitHub トークン: 利用不可（コメント投稿はスキップされます）"
+        fi
+
     # 1.5. Codex オプション解決（モデルをコメント本文から自動パース）
     - name: Resolve Codex options
       id: codex_opts
@@ -204,6 +224,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.bot_github_token || inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
         PR_NUMBER: ${{ inputs.pr_number }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         ORIGINAL_PROMPT: ${{ inputs.prompt }}
@@ -263,15 +284,22 @@ runs:
 
     # 5. 進捗コメントの投稿
     - name: Post progress comment
-      if: inputs.issue_number != '' && (steps.app_token.outputs.token != '' || inputs.bot_github_token != '' || inputs.github_token != '')
+      if: inputs.issue_number != '' && steps.gh_token.outputs.available == 'true'
       id: progress
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.bot_github_token || inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         MODEL: ${{ steps.codex_opts.outputs.model }}
         HEAD_REF: ${{ inputs.head_ref }}
       run: |
+        # GH_TOKEN の確認
+        if [ -z "$GH_TOKEN" ]; then
+          echo "::warning::GH_TOKEN が空のため、コメント投稿をスキップします"
+          exit 0
+        fi
+
         MODEL_INFO=""
         if [ -n "$MODEL" ]; then
           MODEL_INFO=" (model: \`${MODEL}\`)"
@@ -287,7 +315,16 @@ runs:
 
         COMMENT_BODY_FILE=$(mktemp)
         echo "$COMMENT_BODY" > "$COMMENT_BODY_FILE"
-        COMMENT_URL=$(gh issue comment "$ISSUE_NUMBER" --body-file "$COMMENT_BODY_FILE" 2>&1) || true
+
+        # コメント投稿を試行し、失敗時はエラーログを出力
+        # GH_REPO で明示的にリポジトリを指定（Fork PR の URL rewriting の影響を回避）
+        if COMMENT_URL=$(gh issue comment "$ISSUE_NUMBER" --body-file "$COMMENT_BODY_FILE" 2>&1); then
+          echo "コメント投稿成功: $COMMENT_URL"
+        else
+          echo "::warning::コメント投稿に失敗しました: $COMMENT_URL"
+          rm -f "$COMMENT_BODY_FILE"
+          exit 0
+        fi
         rm -f "$COMMENT_BODY_FILE"
 
         # コメントIDを保存（後で更新するため）
@@ -496,10 +533,11 @@ runs:
 
     # 14. 結果コメントの更新（成功時）
     - name: Update result comment (success)
-      if: inputs.issue_number != '' && (steps.app_token.outputs.token != '' || inputs.bot_github_token != '' || inputs.github_token != '') && steps.codex_run.outputs.exit_code == '0'
+      if: inputs.issue_number != '' && steps.gh_token.outputs.available == 'true' && steps.codex_run.outputs.exit_code == '0'
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.bot_github_token || inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         CODEX_RESPONSE: ${{ steps.codex_output.outputs.response }}
         BRANCH_NAME: ${{ steps.commit.outputs.branch_name }}
@@ -546,10 +584,11 @@ runs:
 
     # 15. エラー時のコメント更新
     - name: Update result comment (error)
-      if: inputs.issue_number != '' && (steps.app_token.outputs.token != '' || inputs.bot_github_token != '' || inputs.github_token != '') && steps.codex_run.outputs.exit_code != '0' && steps.codex_run.outputs.exit_code != ''
+      if: inputs.issue_number != '' && steps.gh_token.outputs.available == 'true' && steps.codex_run.outputs.exit_code != '0' && steps.codex_run.outputs.exit_code != ''
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.bot_github_token || inputs.github_token }}
+        GH_REPO: ${{ github.repository }}
         ISSUE_NUMBER: ${{ inputs.issue_number }}
         EXIT_CODE: ${{ steps.codex_run.outputs.exit_code }}
         COMMENT_ID: ${{ steps.progress.outputs.comment_id }}

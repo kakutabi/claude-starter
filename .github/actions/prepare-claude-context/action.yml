@@ -84,6 +84,10 @@ outputs:
     description: "メンションの種類（claude または codex）"
     value: ${{ steps.ctx.outputs.mention_type }}
 
+  fork_clone_url:
+    description: "Fork PR の場合、Fork リポジトリの clone URL（Fork でない場合は空）"
+    value: ${{ steps.ctx.outputs.fork_clone_url }}
+
 runs:
   using: "composite"
   steps:
@@ -167,6 +171,7 @@ runs:
             core.setOutput('milestone_title', obj.milestone_title || '');
 
             core.setOutput('mention_type', obj.mention_type || '');
+            core.setOutput('fork_clone_url', obj.fork_clone_url || '');
           }
 
           const skip = (reason, extra = {}) => setOut({ should_run: false, reason, ...extra });
@@ -423,11 +428,16 @@ runs:
                 return skip('no-head-ref', { issue_number: issueNumber, issue_url: issueUrl, pr_number: prNumber, comment_body: commentBody, trigger_kind: triggerKind, mention_type: mentionType });
               }
 
+              // Fork PR の検出と clone URL の取得
+              const headRepoFullName = pr.head?.repo?.full_name || '';
+              const isForkPr = headRepoFullName !== `${context.repo.owner}/${context.repo.repo}`;
+              const forkCloneUrl = isForkPr ? (pr.head?.repo?.clone_url || '') : '';
+
               // 実装タスクの実行中はレビューをスキップする
               if (mode === 'review') {
                 const implementing = await isImplementRunning({ prNumber, headRef, headSha });
                 if (implementing) {
-                  return skip('implement-running', { issue_number: issueNumber, issue_url: issueUrl, pr_number: prNumber, head_sha: headSha, head_ref: headRef, comment_body: commentBody, trigger_kind: triggerKind, mention_type: mentionType });
+                  return skip('implement-running', { issue_number: issueNumber, issue_url: issueUrl, pr_number: prNumber, head_sha: headSha, head_ref: headRef, comment_body: commentBody, trigger_kind: triggerKind, mention_type: mentionType, fork_clone_url: forkCloneUrl });
                 }
               }
 
@@ -440,6 +450,7 @@ runs:
                 comment_body: commentBody,
                 trigger_kind: triggerKind,
                 mention_type: mentionType,
+                fork_clone_url: forkCloneUrl,
               });
             } catch (e) {
               return skip(`failed-get-pr:${e.message}`, { issue_number: issueNumber, issue_url: issueUrl, pr_number: prNumber, comment_body: commentBody, trigger_kind: triggerKind, mention_type: mentionType });
