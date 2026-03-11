@@ -73,6 +73,14 @@ jobs:
           git config url."${FORK_BASE}".insteadOf "${ORIGIN_BASE}"
           git config url."${FORK_BASE}.git".insteadOf "${ORIGIN_BASE}.git"
 
+      - name: Restore trusted workflow actions
+        if: steps.prep.outputs.should_run == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
+          fetch-depth: 0
+          path: .trusted-base
+
       - name: Run Agent Review
         if: steps.prep.outputs.should_run == 'true'
         uses: ./.trusted-base/.github/actions/run-claude-review
