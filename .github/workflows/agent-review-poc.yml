@@ -1,0 +1,86 @@
+name: Agent Review PoC
+run-name: "agent-review-poc pr #${{ inputs.pr_number }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "PR number to review"
+        required: true
+        type: number
+      mention_type:
+        description: "Review engine"
+        required: false
+        default: "codex"
+        type: choice
+        options:
+          - codex
+          - claude
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  actions: write
+  id-token: write
+
+concurrency:
+  group: agent-review-poc-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout trusted workflow actions
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          path: .trusted-poc
+
+      - name: Resolve manual review context
+        id: manual
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          MENTION_TYPE: ${{ inputs.mention_type }}
+        run: |
+          set -euo pipefail
+
+          HEAD_SHA=$(gh pr view "$PR_NUMBER" --json headRefOid --jq '.headRefOid')
+          HEAD_REF=$(gh pr view "$PR_NUMBER" --json headRefName --jq '.headRefName')
+
+          echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "issue_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+          echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+          echo "head_ref=$HEAD_REF" >> "$GITHUB_OUTPUT"
+          echo "mention_type=$MENTION_TYPE" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.manual.outputs.head_sha }}
+          fetch-depth: 0
+
+      - name: Run Agent Review
+        uses: ./.trusted-poc/.github/actions/run-claude-review
+        with:
+          github_token: ${{ github.token }}
+          comment_body: '@codex [review]'
+          mention_type: ${{ steps.manual.outputs.mention_type }}
+          issue_number: ${{ steps.manual.outputs.issue_number }}
+          pr_number: ${{ steps.manual.outputs.pr_number }}
+          trusted_actions_ref: ${{ github.sha }}
+          head_sha: ${{ steps.manual.outputs.head_sha }}
+          head_ref: ${{ steps.manual.outputs.head_ref }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
+          codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
+          codex_github_token: ${{ secrets.CODEX_GITHUB_TOKEN }}
+          codex_app_id: ${{ vars.CODEX_APP_ID || secrets.CODEX_APP_ID }}
+          codex_app_private_key: ${{ secrets.CODEX_APP_PRIVATE_KEY }}
+          allowed_review_authors: ${{ vars.CODEX_REVIEW_AUTHOR_LOGINS }}
+          model: 'opus'
+          max_turns: '30'

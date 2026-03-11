@@ -21,6 +21,14 @@ inputs:
     description: "Codex ボットユーザー専用の GitHub トークン（Codex が gh CLI で使用）。未指定時は github_token にフォールバック"
     required: false
     default: ""
+  codex_app_id:
+    description: "Codex 用 GitHub App ID（review 投稿を App token で行う場合に使用）"
+    required: false
+    default: ""
+  codex_app_private_key:
+    description: "Codex 用 GitHub App の秘密鍵（PEM 形式）"
+    required: false
+    default: ""
   allowed_review_authors:
     description: "stale review thread 自動解決の対象とする review author login の追加 allowlist（カンマ区切り）"
     required: false
@@ -73,6 +81,14 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Generate GitHub App token
+      if: inputs.codex_app_id != '' && inputs.codex_app_private_key != ''
+      id: app_token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.codex_app_id }}
+        private-key: ${{ inputs.codex_app_private_key }}
+
     - name: Build normalized review prompt
       id: review_prompt
       shell: bash
@@ -81,7 +97,7 @@ runs:
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
       run: |
-        DEFAULT_REVIEW_PROMPT=$(cat <<'EOF'
+        DEFAULT_REVIEW_PROMPT=$(cat <<'EOF' | sed 's/^        //'
         この PR の変更内容をレビューしてください。
 
         出力ルール:
@@ -223,14 +239,14 @@ runs:
         claude_args: |
           --model ${{ steps.opts.outputs.model }}
           --max-turns ${{ steps.opts.outputs.max_turns }}
-          --allowedTools "Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*),Bash(gh api:*)"
+          --allowedTools "Bash(gh pr list:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
 
     - name: Publish Claude review comments
       if: steps.resolve.outputs.mention_type == 'claude' && inputs.pr_number != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
-        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -242,8 +258,11 @@ runs:
           exit 1
         fi
 
-        PR_FILES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate 2>/dev/null || echo '[]')
-        export PR_FILES_JSON
+        PR_FILES_JSONL=.review-pr-files.jsonl
+        if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[]' > "$PR_FILES_JSONL" 2>/dev/null; then
+          : > "$PR_FILES_JSONL"
+        fi
+        export PR_FILES_JSONL
         COMMIT_ID=$(git rev-parse HEAD)
         export COMMIT_ID
         export REVIEW_RUN_ID REVIEW_HEAD_SHA
@@ -288,7 +307,12 @@ runs:
         changed = set()
         valid_right_lines = {}
         try:
-            files_data = json.loads(os.environ.get("PR_FILES_JSON", "[]"))
+            files_data = []
+            for raw_line in Path(os.environ["PR_FILES_JSONL"]).read_text(encoding="utf-8").splitlines():
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                files_data.append(json.loads(raw_line))
             for f in files_data:
                 p = f.get("filename")
                 if p:
@@ -354,10 +378,10 @@ runs:
 
         def render_body(item):
             return "\n".join([
-                f"問題: {item.get('title', '').strip()}",
-                f"根拠: {item.get('evidence', '').strip()}",
-                f"修正案: {item.get('suggestion', '').strip()}",
-                f"影響: {item.get('impact', '').strip()}",
+                f"問題: {str(item.get('title', '')).strip()}",
+                f"根拠: {str(item.get('evidence', '')).strip()}",
+                f"修正案: {str(item.get('suggestion', '')).strip()}",
+                f"影響: {str(item.get('impact', '')).strip()}",
             ])
 
         def review_marker(path, requested_line, title):
@@ -370,6 +394,12 @@ runs:
                 json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             ).decode("ascii")
             return f"<!-- codex-review-key:{encoded} -->"
+
+        def render_comment_body(body, marker, max_length=65000):
+            available = max_length - len(marker) - 1
+            if available < 0:
+                raise SystemExit("review marker is longer than the supported comment length")
+            return f"{body[:available]}\n{marker}"
 
         def nearest_valid_line(path, requested_line):
             valid = sorted(valid_right_lines.get(path, set()))
@@ -431,11 +461,12 @@ runs:
                     fallback.append(f"- [fallback:{reason}] `{path}:{line}`\n{detail}\n{body}")
                     continue
 
+            marker = review_marker(path, requested_line, raw.get("title", ""))
             comments.append({
                 "path": path,
                 "line": line,
                 "side": "RIGHT",
-                "body": "\n".join([body, review_marker(path, requested_line, raw.get("title", ""))])[:65000],
+                "body": render_comment_body(body, marker),
             })
 
         if max_blocking_sev >= severity_rank["high"]:
@@ -466,7 +497,7 @@ runs:
         source .review-meta.env
 
         if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
-          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          echo "::warning::approve 用トークンが未設定のため APPROVE を COMMENT にフォールバックします"
           python3 <<'PY'
         import json
         from pathlib import Path
@@ -474,7 +505,7 @@ runs:
         payload_path = Path(".review-payload.json")
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         body = str(payload.get("body", "")).strip()
-        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        note = "Note: APPROVE requires an App token or bot token, so this result is posted as COMMENT."
         payload["event"] = "COMMENT"
         payload["body"] = f"{body}\n\n{note}" if body else note
         payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -563,14 +594,34 @@ runs:
         echo "$CODEX_PROMPT" >> $GITHUB_OUTPUT
         echo "${EOF_MARKER}" >> $GITHUB_OUTPUT
 
-    - name: Run Codex
-      if: steps.resolve.outputs.mention_type == 'codex'
+    - name: Run Codex via trusted action
+      if: steps.resolve.outputs.mention_type == 'codex' && inputs.trusted_actions_ref != ''
       uses: ./.trusted-review-base/.github/actions/run-codex
       with:
         codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
         codex_auth_json: ${{ inputs.codex_auth_json }}
         github_token: ${{ inputs.github_token }}
         bot_github_token: ${{ inputs.codex_github_token }}
+        app_id: ${{ inputs.codex_app_id }}
+        app_private_key: ${{ inputs.codex_app_private_key }}
+        prompt: ${{ steps.codex_prompt.outputs.content }}
+        comment_body: ${{ inputs.comment_body }}
+        issue_number: ""
+        pr_number: ${{ inputs.pr_number }}
+        head_ref: ${{ inputs.head_ref }}
+        auto_commit: "false"
+        fail_on_error: "true"
+
+    - name: Run Codex via local action
+      if: steps.resolve.outputs.mention_type == 'codex' && inputs.trusted_actions_ref == ''
+      uses: ./.github/actions/run-codex
+      with:
+        codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
+        codex_auth_json: ${{ inputs.codex_auth_json }}
+        github_token: ${{ inputs.github_token }}
+        bot_github_token: ${{ inputs.codex_github_token }}
+        app_id: ${{ inputs.codex_app_id }}
+        app_private_key: ${{ inputs.codex_app_private_key }}
         prompt: ${{ steps.codex_prompt.outputs.content }}
         comment_body: ${{ inputs.comment_body }}
         issue_number: ""
@@ -583,8 +634,8 @@ runs:
       if: steps.resolve.outputs.mention_type == 'codex' && inputs.pr_number != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
-        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -596,8 +647,11 @@ runs:
           exit 1
         fi
 
-        PR_FILES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate 2>/dev/null || echo '[]')
-        export PR_FILES_JSON
+        PR_FILES_JSONL=.review-pr-files.jsonl
+        if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate --jq '.[]' > "$PR_FILES_JSONL" 2>/dev/null; then
+          : > "$PR_FILES_JSONL"
+        fi
+        export PR_FILES_JSONL
         COMMIT_ID=$(git rev-parse HEAD)
         export COMMIT_ID
         export REVIEW_RUN_ID REVIEW_HEAD_SHA
@@ -642,7 +696,12 @@ runs:
         changed = set()
         valid_right_lines = {}
         try:
-            files_data = json.loads(os.environ.get("PR_FILES_JSON", "[]"))
+            files_data = []
+            for raw_line in Path(os.environ["PR_FILES_JSONL"]).read_text(encoding="utf-8").splitlines():
+                raw_line = raw_line.strip()
+                if not raw_line:
+                    continue
+                files_data.append(json.loads(raw_line))
             for f in files_data:
                 p = f.get("filename")
                 if p:
@@ -708,10 +767,10 @@ runs:
 
         def render_body(item):
             return "\n".join([
-                f"問題: {item.get('title', '').strip()}",
-                f"根拠: {item.get('evidence', '').strip()}",
-                f"修正案: {item.get('suggestion', '').strip()}",
-                f"影響: {item.get('impact', '').strip()}",
+                f"問題: {str(item.get('title', '')).strip()}",
+                f"根拠: {str(item.get('evidence', '')).strip()}",
+                f"修正案: {str(item.get('suggestion', '')).strip()}",
+                f"影響: {str(item.get('impact', '')).strip()}",
             ])
 
         def review_marker(path, requested_line, title):
@@ -724,6 +783,12 @@ runs:
                 json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
             ).decode("ascii")
             return f"<!-- codex-review-key:{encoded} -->"
+
+        def render_comment_body(body, marker, max_length=65000):
+            available = max_length - len(marker) - 1
+            if available < 0:
+                raise SystemExit("review marker is longer than the supported comment length")
+            return f"{body[:available]}\n{marker}"
 
         def nearest_valid_line(path, requested_line):
             valid = sorted(valid_right_lines.get(path, set()))
@@ -785,11 +850,12 @@ runs:
                     fallback.append(f"- [fallback:{reason}] `{path}:{line}`\n{detail}\n{body}")
                     continue
 
+            marker = review_marker(path, requested_line, raw.get("title", ""))
             comments.append({
                 "path": path,
                 "line": line,
                 "side": "RIGHT",
-                "body": "\n".join([body, review_marker(path, requested_line, raw.get("title", ""))])[:65000],
+                "body": render_comment_body(body, marker),
             })
 
         if max_blocking_sev >= severity_rank["high"]:
@@ -820,7 +886,7 @@ runs:
         source .review-meta.env
 
         if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
-          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          echo "::warning::approve 用トークンが未設定のため APPROVE を COMMENT にフォールバックします"
           python3 <<'PY'
         import json
         from pathlib import Path
@@ -828,7 +894,7 @@ runs:
         payload_path = Path(".review-payload.json")
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         body = str(payload.get("body", "")).strip()
-        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        note = "Note: APPROVE requires an App token or bot token, so this result is posted as COMMENT."
         payload["event"] = "COMMENT"
         payload["body"] = f"{body}\n\n{note}" if body else note
         payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -905,10 +971,11 @@ runs:
         fi
 
     - name: Resolve obsolete review threads
-      if: inputs.pr_number != '' && inputs.codex_github_token != '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+      if: inputs.pr_number != '' && (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token }}
+        APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -928,6 +995,10 @@ runs:
 
         if [ -n "${EXTRA_REVIEW_AUTHORS:-}" ]; then
           REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${EXTRA_REVIEW_AUTHORS}"
+        fi
+
+        if [ -n "${APP_SLUG:-}" ]; then
+          REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${APP_SLUG}[bot]"
         fi
 
         if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
@@ -1110,8 +1181,26 @@ runs:
           fi
         done < .review-thread-ids.txt
 
-    - name: Skip obsolete review thread resolution without bot token
-      if: inputs.pr_number != '' && inputs.codex_github_token == '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+    - name: Skip obsolete review thread resolution without review token
+      if: inputs.pr_number != '' && steps.app_token.outputs.token == '' && inputs.codex_github_token == '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
       shell: bash
       run: |
-        echo "::warning::codex_github_token が未設定のため stale review thread の自動解決をスキップしました"
+        echo "::warning::review 用トークンが未設定のため stale review thread の自動解決をスキップしました"
+
+    - name: Cleanup temp files
+      if: always()
+      shell: bash
+      run: |
+        rm -f \
+          .review-pr-files.jsonl \
+          .review-payload.json \
+          .review-comments.json \
+          .review-comments.ndjson \
+          .review-fallback.md \
+          .review-fallback-all.md \
+          .review-post.err \
+          .review-comment.err \
+          .review-meta.env \
+          .review-threads.json \
+          .review-thread-ids.txt \
+          .review-thread-resolve.err
