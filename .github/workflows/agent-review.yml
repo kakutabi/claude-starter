@@ -71,6 +71,26 @@ jobs:
           git config url."${FORK_BASE}".insteadOf "${ORIGIN_BASE}"
           git config url."${FORK_BASE}.git".insteadOf "${ORIGIN_BASE}.git"
 
+      - name: Debug Codex secret presence
+        if: steps.prep.outputs.should_run == 'true'
+        env:
+          TOKEN: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
+          AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          if [ -n "$TOKEN" ]; then
+            echo "CODEX_CODE_OAUTH_TOKEN is set"
+            echo "CODEX_CODE_OAUTH_TOKEN length=${#TOKEN}"
+          else
+            echo "CODEX_CODE_OAUTH_TOKEN is empty"
+          fi
+
+          if [ -n "$AUTH_JSON" ]; then
+            echo "CODEX_AUTH_JSON is set"
+            echo "CODEX_AUTH_JSON length=${#AUTH_JSON}"
+          else
+            echo "CODEX_AUTH_JSON is empty"
+          fi
+
       - name: Run Agent Review
         if: steps.prep.outputs.should_run == 'true'
         uses: ./.github/actions/run-claude-review
