@@ -252,7 +252,6 @@ runs:
             body = render_body(raw)
 
             if sev == "low":
-                fallback.append(f"- [low] `{path}:{line}` {raw.get('title', '')}")
                 continue
             if not path or path not in changed:
                 fallback.append(f"- [fallback:invalid_path] `{path}:{line}`\n{body}")
@@ -268,7 +267,12 @@ runs:
                 "body": body[:65000],
             })
 
-        review_event = "REQUEST_CHANGES" if max_sev >= severity_rank["high"] else "COMMENT"
+        if max_sev >= severity_rank["high"]:
+            review_event = "REQUEST_CHANGES"
+        elif max_sev <= severity_rank["low"] and not fallback:
+            review_event = "APPROVE"
+        else:
+            review_event = "COMMENT"
         payload = {
             "event": review_event,
             "body": summary or "AI review findings",
@@ -290,20 +294,18 @@ runs:
 
         source .review-meta.env
 
-        if [ "${COMMENTS_COUNT:-0}" -gt 0 ]; then
-          if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
-            ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
-            {
-              echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
-              echo
-              echo "reason: api_error"
-              echo "detail: ${ERR_MSG}"
-              echo
-              cat .review-fallback.md 2>/dev/null || true
-            } > .review-fallback-all.md
-            gh pr comment "$PR_NUMBER" --body-file .review-fallback-all.md >/dev/null || true
-            exit 0
-          fi
+        if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
+          ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+          {
+            echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
+            echo
+            echo "reason: api_error"
+            echo "detail: ${ERR_MSG}"
+            echo
+            cat .review-fallback.md 2>/dev/null || true
+          } > .review-fallback-all.md
+          gh pr comment "$PR_NUMBER" --body-file .review-fallback-all.md >/dev/null || true
+          exit 0
         fi
 
         if [ "${FALLBACK_COUNT:-0}" -gt 0 ] && [ -s .review-fallback.md ]; then
@@ -412,7 +414,6 @@ runs:
             body = render_body(raw)
 
             if sev == "low":
-                fallback.append(f"- [low] `{path}:{line}` {raw.get('title', '')}")
                 continue
             if not path or path not in changed:
                 fallback.append(f"- [fallback:invalid_path] `{path}:{line}`\n{body}")
@@ -428,7 +429,12 @@ runs:
                 "body": body[:65000],
             })
 
-        review_event = "REQUEST_CHANGES" if max_sev >= severity_rank["high"] else "COMMENT"
+        if max_sev >= severity_rank["high"]:
+            review_event = "REQUEST_CHANGES"
+        elif max_sev <= severity_rank["low"] and not fallback:
+            review_event = "APPROVE"
+        else:
+            review_event = "COMMENT"
         payload = {
             "event": review_event,
             "body": summary or "AI review findings",
@@ -450,20 +456,18 @@ runs:
 
         source .review-meta.env
 
-        if [ "${COMMENTS_COUNT:-0}" -gt 0 ]; then
-          if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
-            ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
-            {
-              echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
-              echo
-              echo "reason: api_error"
-              echo "detail: ${ERR_MSG}"
-              echo
-              cat .review-fallback.md 2>/dev/null || true
-            } > .review-fallback-all.md
-            gh pr comment "$PR_NUMBER" --body-file .review-fallback-all.md >/dev/null || true
-            exit 0
-          fi
+        if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
+          ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+          {
+            echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
+            echo
+            echo "reason: api_error"
+            echo "detail: ${ERR_MSG}"
+            echo
+            cat .review-fallback.md 2>/dev/null || true
+          } > .review-fallback-all.md
+          gh pr comment "$PR_NUMBER" --body-file .review-fallback-all.md >/dev/null || true
+          exit 0
         fi
 
         if [ "${FALLBACK_COUNT:-0}" -gt 0 ] && [ -s .review-fallback.md ]; then
