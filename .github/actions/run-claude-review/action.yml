@@ -240,7 +240,9 @@ runs:
         export REVIEW_RUN_ID REVIEW_HEAD_SHA
 
         python3 <<'PY'
+        import base64
         import json
+        import os
         import re
         from pathlib import Path
 
