@@ -241,7 +241,6 @@ runs:
 
         python3 <<'PY'
         import json
-        import os
         import re
         from pathlib import Path
 
@@ -325,6 +324,17 @@ runs:
                 f"影響: {item.get('impact', '').strip()}",
             ])
 
+        def review_marker(path, requested_line, title):
+            payload = {
+                "path": path,
+                "line": requested_line,
+                "title": " ".join(str(title or "").strip().split()),
+            }
+            encoded = base64.b64encode(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            ).decode("ascii")
+            return f"<!-- codex-review-key:{encoded} -->"
+
         def nearest_valid_line(path, requested_line):
             valid = sorted(valid_right_lines.get(path, set()))
             if not valid:
@@ -353,6 +363,7 @@ runs:
                 line = int(line_raw)
             except (TypeError, ValueError):
                 raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
+            requested_line = line
 
             if sev == "low":
                 continue
@@ -382,7 +393,7 @@ runs:
                 "path": path,
                 "line": line,
                 "side": "RIGHT",
-                "body": body[:65000],
+                "body": "\n".join([body, review_marker(path, requested_line, raw.get("title", ""))])[:65000],
             })
 
         if max_sev >= severity_rank["high"]:
@@ -592,6 +603,17 @@ runs:
                 f"影響: {item.get('impact', '').strip()}",
             ])
 
+        def review_marker(path, requested_line, title):
+            payload = {
+                "path": path,
+                "line": requested_line,
+                "title": " ".join(str(title or "").strip().split()),
+            }
+            encoded = base64.b64encode(
+                json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            ).decode("ascii")
+            return f"<!-- codex-review-key:{encoded} -->"
+
         def nearest_valid_line(path, requested_line):
             valid = sorted(valid_right_lines.get(path, set()))
             if not valid:
@@ -620,6 +642,7 @@ runs:
                 line = int(line_raw)
             except (TypeError, ValueError):
                 raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
+            requested_line = line
 
             if sev == "low":
                 continue
@@ -649,7 +672,7 @@ runs:
                 "path": path,
                 "line": line,
                 "side": "RIGHT",
-                "body": body[:65000],
+                "body": "\n".join([body, review_marker(path, requested_line, raw.get("title", ""))])[:65000],
             })
 
         if max_sev >= severity_rank["high"]:
@@ -738,15 +761,6 @@ runs:
 
         REPO_OWNER="${GITHUB_REPOSITORY%/*}"
         REPO_NAME="${GITHUB_REPOSITORY#*/}"
-        REVIEW_AUTHOR_LOGINS="github-actions[bot]"
-
-        if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
-          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ]; then
-            REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${BOT_LOGIN}"
-          fi
-        fi
-
-        export REVIEW_AUTHOR_LOGINS
 
         gh api graphql \
           -F owner="$REPO_OWNER" \
@@ -776,6 +790,7 @@ runs:
           ' > .review-threads.json
 
         python3 <<'PY' > .review-thread-ids.txt
+        import base64
         import json
         import os
         import re
@@ -797,13 +812,26 @@ runs:
                 return int(match.group(1))
             return fallback_line
 
+        def marker_from_body(body):
+            match = re.search(r"<!--\s*codex-review-key:([A-Za-z0-9+/=]+)\s*-->", str(body or ""))
+            if not match:
+                return None
+            try:
+                payload = json.loads(base64.b64decode(match.group(1)).decode("utf-8"))
+            except Exception:
+                return None
+            path = str(payload.get("path", "")).strip()
+            title = normalize(payload.get("title", ""))
+            try:
+                line = int(payload.get("line"))
+            except (TypeError, ValueError):
+                return None
+            if not path or not title or line <= 0:
+                return None
+            return (path, line, title)
+
         findings_data = json.loads(Path(".codex-review-findings.json").read_text(encoding="utf-8"))
         threads_data = json.loads(Path(".review-threads.json").read_text(encoding="utf-8"))
-        allowed_authors = {
-            normalize(login)
-            for login in os.environ.get("REVIEW_AUTHOR_LOGINS", "").split(",")
-            if normalize(login)
-        }
 
         active = set()
         for item in findings_data.get("findings", []) or []:
@@ -828,20 +856,25 @@ runs:
             if not comments:
                 continue
             first = comments[0]
-            author = normalize(((first.get("author") or {}).get("login")) or "")
-            if allowed_authors and author not in allowed_authors:
-                continue
-            path = str(first.get("path", "")).strip()
-            line = first.get("originalLine")
-            title = title_from_body(first.get("body", ""))
-            try:
-                line = int(line)
-            except (TypeError, ValueError):
-                continue
-            line = requested_line_from_body(first.get("body", ""), line)
-            if not path or not title or line <= 0:
-                continue
-            if (path, line, title) in active:
+            marker = marker_from_body(first.get("body", ""))
+            if marker is not None:
+                candidate = marker
+            else:
+                author = normalize(((first.get("author") or {}).get("login")) or "")
+                if author and not (author == "github-actions[bot]" or author.endswith("[bot]")):
+                    continue
+                path = str(first.get("path", "")).strip()
+                line = first.get("originalLine")
+                title = title_from_body(first.get("body", ""))
+                try:
+                    line = int(line)
+                except (TypeError, ValueError):
+                    continue
+                line = requested_line_from_body(first.get("body", ""), line)
+                if not path or not title or line <= 0:
+                    continue
+                candidate = (path, line, title)
+            if candidate in active:
                 continue
             print(node["id"])
         PY
