@@ -33,6 +33,10 @@ inputs:
     description: "PR 番号（Codex の PR コンテキスト取得に使用）"
     required: false
     default: ""
+  head_sha:
+    description: "PR の head SHA（成果物の freshness 検証に使用）"
+    required: false
+    default: ""
   head_ref:
     description: "PR の head ブランチ名（Codex のブランチリンク表示に使用）"
     required: false
@@ -66,6 +70,8 @@ runs:
       shell: bash
       env:
         PROMPT: ${{ inputs.prompt }}
+        REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
+        REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
       run: |
         DEFAULT_REVIEW_PROMPT=$(cat <<'EOF'
         この PR の変更内容をレビューしてください。
@@ -76,6 +82,8 @@ runs:
         3. `.codex-review-findings.json` は次の形式に従う
         {
           "summary": "全体サマリー",
+          "generated_by_run_id": "__REVIEW_RUN_ID__",
+          "generated_for_head_sha": "__REVIEW_HEAD_SHA__",
           "findings": [
             {
               "path": "ファイルパス",
@@ -94,6 +102,8 @@ runs:
         - low はサマリーのみで可
         EOF
         )
+        DEFAULT_REVIEW_PROMPT=${DEFAULT_REVIEW_PROMPT//__REVIEW_RUN_ID__/$REVIEW_RUN_ID}
+        DEFAULT_REVIEW_PROMPT=${DEFAULT_REVIEW_PROMPT//__REVIEW_HEAD_SHA__/$REVIEW_HEAD_SHA}
 
         if [ -z "$PROMPT" ] || [ "$PROMPT" = "/review" ]; then
           FINAL_PROMPT="$DEFAULT_REVIEW_PROMPT"
@@ -105,6 +115,22 @@ runs:
         echo "content<<${EOF_MARKER}" >> $GITHUB_OUTPUT
         echo "$FINAL_PROMPT" >> $GITHUB_OUTPUT
         echo "${EOF_MARKER}" >> $GITHUB_OUTPUT
+
+    - name: Remove stale review artifacts
+      shell: bash
+      run: |
+        rm -f \
+          .codex-review-findings.json \
+          .codex-summary.md \
+          .codex-last-message.md \
+          .review-payload.json \
+          .review-comments.json \
+          .review-comments.ndjson \
+          .review-fallback.md \
+          .review-fallback-all.md \
+          .review-post.err \
+          .review-comment.err \
+          .review-meta.env
 
     - name: Resolve mention type
       id: resolve
@@ -185,18 +211,21 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
+        REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
+        REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
       run: |
         set -euo pipefail
 
         if [ ! -f .codex-review-findings.json ]; then
-          echo "skip: .codex-review-findings.json not found"
-          exit 0
+          echo "::error::.codex-review-findings.json not found"
+          exit 1
         fi
 
         PR_FILES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate 2>/dev/null || echo '[]')
         export PR_FILES_JSON
         COMMIT_ID=$(git rev-parse HEAD)
         export COMMIT_ID
+        export REVIEW_RUN_ID REVIEW_HEAD_SHA
 
         python3 <<'PY'
         import json
@@ -210,16 +239,29 @@ runs:
         fallback_path = Path(".review-fallback.md")
         meta_path = Path(".review-meta.env")
 
-        summary = ""
-        findings = []
+        required_keys = ("path", "line", "severity", "title", "evidence", "suggestion", "impact")
         try:
             data = json.loads(findings_path.read_text(encoding="utf-8"))
-            summary = str(data.get("summary", "")).strip()
-            findings = data.get("findings", []) or []
         except Exception as exc:
-            fallback_path.write_text(f"⚠️ Structured review parsing failed: {exc}\n", encoding="utf-8")
-            meta_path.write_text("COMMENTS_COUNT=0\nFALLBACK_COUNT=1\nREVIEW_EVENT=COMMENT\n", encoding="utf-8")
-            raise SystemExit(0)
+            raise SystemExit(f"Structured review parsing failed: {exc}")
+        if not isinstance(data, dict):
+            raise SystemExit("Structured review payload must be a JSON object")
+
+        summary = str(data.get("summary", "")).strip()
+        findings = data.get("findings")
+        generated_by_run_id = str(data.get("generated_by_run_id", "")).strip()
+        generated_for_head_sha = str(data.get("generated_for_head_sha", "")).strip()
+        expected_run_id = os.environ["REVIEW_RUN_ID"]
+        expected_head_sha = os.environ["REVIEW_HEAD_SHA"]
+
+        if not summary:
+            raise SystemExit("Structured review payload missing non-empty summary")
+        if generated_by_run_id != expected_run_id:
+            raise SystemExit(f"Structured review payload run mismatch: expected {expected_run_id}, got {generated_by_run_id or '<empty>'}")
+        if generated_for_head_sha != expected_head_sha:
+            raise SystemExit(f"Structured review payload head SHA mismatch: expected {expected_head_sha}, got {generated_for_head_sha or '<empty>'}")
+        if not isinstance(findings, list):
+            raise SystemExit("Structured review payload findings must be an array")
 
         changed = set()
         valid_right_lines = {}
@@ -272,27 +314,33 @@ runs:
 
         for raw in findings:
             if not isinstance(raw, dict):
-                continue
+                raise SystemExit("Each finding must be a JSON object")
+            missing = [key for key in required_keys if key not in raw]
+            if missing:
+                raise SystemExit(f"Finding missing required keys: {', '.join(missing)}")
             sev = str(raw.get("severity", "low")).lower()
             if sev not in severity_rank:
-                sev = "low"
+                raise SystemExit(f"Invalid finding severity: {sev}")
             max_sev = max(max_sev, severity_rank[sev])
             path = str(raw.get("path", "")).strip()
+            if not path:
+                raise SystemExit("Finding path must be a non-empty string")
             line_raw = raw.get("line")
             body = render_body(raw)
+            for key in ("title", "evidence", "suggestion", "impact"):
+                if not str(raw.get(key, "")).strip():
+                    raise SystemExit(f"Finding field '{key}' must be non-empty")
             try:
                 line = int(line_raw)
             except (TypeError, ValueError):
-                line = None
+                raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
 
             if sev == "low":
                 continue
-            if not path or path not in changed:
-                fallback.append(f"- [fallback:invalid_path] `{path}:{line_raw}`\n{body}")
-                continue
-            if line is None or line <= 0:
-                fallback.append(f"- [fallback:invalid_line] `{path}:{line_raw}`\n{body}")
-                continue
+            if path not in changed:
+                raise SystemExit(f"Finding path is outside PR diff: {path}")
+            if line <= 0:
+                raise SystemExit(f"Finding line must be positive: {line}")
             if path in valid_right_lines and valid_right_lines[path] and line not in valid_right_lines[path]:
                 fallback.append(f"- [fallback:not_in_diff] `{path}:{line}`\n{body}")
                 continue
@@ -409,18 +457,21 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
+        REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
+        REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
       run: |
         set -euo pipefail
 
         if [ ! -f .codex-review-findings.json ]; then
-          echo "skip: .codex-review-findings.json not found"
-          exit 0
+          echo "::error::.codex-review-findings.json not found"
+          exit 1
         fi
 
         PR_FILES_JSON=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/files" --paginate 2>/dev/null || echo '[]')
         export PR_FILES_JSON
         COMMIT_ID=$(git rev-parse HEAD)
         export COMMIT_ID
+        export REVIEW_RUN_ID REVIEW_HEAD_SHA
 
         python3 <<'PY'
         import json
@@ -434,16 +485,29 @@ runs:
         fallback_path = Path(".review-fallback.md")
         meta_path = Path(".review-meta.env")
 
-        summary = ""
-        findings = []
+        required_keys = ("path", "line", "severity", "title", "evidence", "suggestion", "impact")
         try:
             data = json.loads(findings_path.read_text(encoding="utf-8"))
-            summary = str(data.get("summary", "")).strip()
-            findings = data.get("findings", []) or []
         except Exception as exc:
-            fallback_path.write_text(f"⚠️ Structured review parsing failed: {exc}\n", encoding="utf-8")
-            meta_path.write_text("COMMENTS_COUNT=0\nFALLBACK_COUNT=1\nREVIEW_EVENT=COMMENT\n", encoding="utf-8")
-            raise SystemExit(0)
+            raise SystemExit(f"Structured review parsing failed: {exc}")
+        if not isinstance(data, dict):
+            raise SystemExit("Structured review payload must be a JSON object")
+
+        summary = str(data.get("summary", "")).strip()
+        findings = data.get("findings")
+        generated_by_run_id = str(data.get("generated_by_run_id", "")).strip()
+        generated_for_head_sha = str(data.get("generated_for_head_sha", "")).strip()
+        expected_run_id = os.environ["REVIEW_RUN_ID"]
+        expected_head_sha = os.environ["REVIEW_HEAD_SHA"]
+
+        if not summary:
+            raise SystemExit("Structured review payload missing non-empty summary")
+        if generated_by_run_id != expected_run_id:
+            raise SystemExit(f"Structured review payload run mismatch: expected {expected_run_id}, got {generated_by_run_id or '<empty>'}")
+        if generated_for_head_sha != expected_head_sha:
+            raise SystemExit(f"Structured review payload head SHA mismatch: expected {expected_head_sha}, got {generated_for_head_sha or '<empty>'}")
+        if not isinstance(findings, list):
+            raise SystemExit("Structured review payload findings must be an array")
 
         changed = set()
         valid_right_lines = {}
@@ -496,27 +560,33 @@ runs:
 
         for raw in findings:
             if not isinstance(raw, dict):
-                continue
+                raise SystemExit("Each finding must be a JSON object")
+            missing = [key for key in required_keys if key not in raw]
+            if missing:
+                raise SystemExit(f"Finding missing required keys: {', '.join(missing)}")
             sev = str(raw.get("severity", "low")).lower()
             if sev not in severity_rank:
-                sev = "low"
+                raise SystemExit(f"Invalid finding severity: {sev}")
             max_sev = max(max_sev, severity_rank[sev])
             path = str(raw.get("path", "")).strip()
+            if not path:
+                raise SystemExit("Finding path must be a non-empty string")
             line_raw = raw.get("line")
             body = render_body(raw)
+            for key in ("title", "evidence", "suggestion", "impact"):
+                if not str(raw.get(key, "")).strip():
+                    raise SystemExit(f"Finding field '{key}' must be non-empty")
             try:
                 line = int(line_raw)
             except (TypeError, ValueError):
-                line = None
+                raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
 
             if sev == "low":
                 continue
-            if not path or path not in changed:
-                fallback.append(f"- [fallback:invalid_path] `{path}:{line_raw}`\n{body}")
-                continue
-            if line is None or line <= 0:
-                fallback.append(f"- [fallback:invalid_line] `{path}:{line_raw}`\n{body}")
-                continue
+            if path not in changed:
+                raise SystemExit(f"Finding path is outside PR diff: {path}")
+            if line <= 0:
+                raise SystemExit(f"Finding line must be positive: {line}")
             if path in valid_right_lines and valid_right_lines[path] and line not in valid_right_lines[path]:
                 fallback.append(f"- [fallback:not_in_diff] `{path}:{line}`\n{body}")
                 continue

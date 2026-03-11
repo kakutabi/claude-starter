@@ -25,14 +25,16 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository to access local actions
+      - name: Checkout trusted workflow actions
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
           fetch-depth: 0
+          path: .trusted-base
 
       - name: Prepare context
         id: prep
-        uses: ./.github/actions/prepare-claude-context
+        uses: ./.trusted-base/.github/actions/prepare-claude-context
         with:
           mode: "review"
           impl_workflow_id: agent.yml
@@ -71,35 +73,16 @@ jobs:
           git config url."${FORK_BASE}".insteadOf "${ORIGIN_BASE}"
           git config url."${FORK_BASE}.git".insteadOf "${ORIGIN_BASE}.git"
 
-      - name: Debug Codex secret presence
-        if: steps.prep.outputs.should_run == 'true'
-        env:
-          TOKEN: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
-          AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: |
-          if [ -n "$TOKEN" ]; then
-            echo "CODEX_CODE_OAUTH_TOKEN is set"
-            echo "CODEX_CODE_OAUTH_TOKEN length=${#TOKEN}"
-          else
-            echo "CODEX_CODE_OAUTH_TOKEN is empty"
-          fi
-
-          if [ -n "$AUTH_JSON" ]; then
-            echo "CODEX_AUTH_JSON is set"
-            echo "CODEX_AUTH_JSON length=${#AUTH_JSON}"
-          else
-            echo "CODEX_AUTH_JSON is empty"
-          fi
-
       - name: Run Agent Review
         if: steps.prep.outputs.should_run == 'true'
-        uses: ./.github/actions/run-claude-review
+        uses: ./.trusted-base/.github/actions/run-claude-review
         with:
           github_token: ${{ github.token }}
           comment_body: ${{ steps.prep.outputs.comment_body }}
           mention_type: ${{ steps.prep.outputs.mention_type }}
           issue_number: ${{ steps.prep.outputs.issue_number }}
           pr_number: ${{ steps.prep.outputs.pr_number }}
+          head_sha: ${{ steps.prep.outputs.head_sha }}
           head_ref: ${{ steps.prep.outputs.head_ref }}
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
