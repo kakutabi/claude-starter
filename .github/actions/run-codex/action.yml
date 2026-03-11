@@ -353,11 +353,7 @@ runs:
         CODEX_TOKEN: ${{ inputs.codex_code_oauth_token }}
         CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
       run: |
-        if [ -n "$CODEX_TOKEN" ]; then
-          rm -f "$HOME/.codex/auth.json"
-          echo "auth_method=api_key" >> $GITHUB_OUTPUT
-          echo "Codex 認証: API キーを優先使用"
-        elif [ -n "$CODEX_AUTH_JSON" ]; then
+        if [ -n "$CODEX_AUTH_JSON" ]; then
           # Base64 デコードして auth.json を配置
           AUTH_DIR="$HOME/.codex"
           mkdir -p "$AUTH_DIR"
@@ -368,6 +364,9 @@ runs:
           chmod 600 "$AUTH_DIR/auth.json"
           echo "auth_method=auth_json" >> $GITHUB_OUTPUT
           echo "Codex 認証: auth.json を使用"
+        elif [ -n "$CODEX_TOKEN" ]; then
+          echo "auth_method=api_key" >> $GITHUB_OUTPUT
+          echo "Codex 認証: API キーを使用"
         fi
 
     # 8. Codex CLI で実行
