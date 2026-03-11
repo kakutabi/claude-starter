@@ -340,17 +340,17 @@ runs:
                 return False
             raise SystemExit(f"Finding is_blocking must be a boolean-compatible value: {raw_value!r}")
 
-        def validate_tracking_issue(raw_value, is_blocking):
+        def normalize_tracking_issue(raw_value, is_blocking):
             value = str(raw_value or "").strip()
             if is_blocking:
-                return value
+                return value, True, ""
             if not value:
-                raise SystemExit("Non-blocking finding must include tracking_issue")
+                return "", True, "tracking_issue が未指定のため blocking finding として扱います"
             if re.fullmatch(r"#?\d+", value):
-                return value
+                return value, False, ""
             if re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/\d+", value):
-                return value
-            raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
+                return value, False, ""
+            return "", True, f"tracking_issue の形式が不正なため blocking finding として扱います: {raw_value!r}"
 
         def render_body(item):
             return "\n".join([
@@ -383,19 +383,14 @@ runs:
             missing = [key for key in required_keys if key not in raw]
             if missing:
                 raise SystemExit(f"Finding missing required keys: {', '.join(missing)}")
-            sev = str(raw.get("severity", "low")).lower()
-            if sev not in severity_rank:
-                raise SystemExit(f"Invalid finding severity: {sev}")
-            is_blocking = parse_blocking(raw.get("is_blocking"))
-            validate_tracking_issue(raw.get("tracking_issue"), is_blocking)
-            max_sev = max(max_sev, severity_rank[sev])
-            if is_blocking:
-                max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
             path = str(raw.get("path", "")).strip()
             if not path:
                 raise SystemExit("Finding path must be a non-empty string")
             line_raw = raw.get("line")
             body = render_body(raw)
+            sev = str(raw.get("severity", "low")).lower()
+            if sev not in severity_rank:
+                raise SystemExit(f"Invalid finding severity: {sev}")
             for key in ("title", "evidence", "suggestion", "impact"):
                 if not str(raw.get(key, "")).strip():
                     raise SystemExit(f"Finding field '{key}' must be non-empty")
@@ -404,6 +399,13 @@ runs:
             except (TypeError, ValueError):
                 raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
             requested_line = line
+            tracking_issue, is_blocking, tracking_note = normalize_tracking_issue(raw.get("tracking_issue"), parse_blocking(raw.get("is_blocking")))
+            raw["tracking_issue"] = tracking_issue
+            if tracking_note:
+                body = "\n".join([body, f"補足: {tracking_note}"])
+            max_sev = max(max_sev, severity_rank[sev])
+            if is_blocking:
+                max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
 
             if sev == "low":
                 continue
@@ -692,17 +694,17 @@ runs:
                 return False
             raise SystemExit(f"Finding is_blocking must be a boolean-compatible value: {raw_value!r}")
 
-        def validate_tracking_issue(raw_value, is_blocking):
+        def normalize_tracking_issue(raw_value, is_blocking):
             value = str(raw_value or "").strip()
             if is_blocking:
-                return value
+                return value, True, ""
             if not value:
-                raise SystemExit("Non-blocking finding must include tracking_issue")
+                return "", True, "tracking_issue が未指定のため blocking finding として扱います"
             if re.fullmatch(r"#?\d+", value):
-                return value
+                return value, False, ""
             if re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/\d+", value):
-                return value
-            raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
+                return value, False, ""
+            return "", True, f"tracking_issue の形式が不正なため blocking finding として扱います: {raw_value!r}"
 
         def render_body(item):
             return "\n".join([
@@ -735,19 +737,14 @@ runs:
             missing = [key for key in required_keys if key not in raw]
             if missing:
                 raise SystemExit(f"Finding missing required keys: {', '.join(missing)}")
-            sev = str(raw.get("severity", "low")).lower()
-            if sev not in severity_rank:
-                raise SystemExit(f"Invalid finding severity: {sev}")
-            is_blocking = parse_blocking(raw.get("is_blocking"))
-            validate_tracking_issue(raw.get("tracking_issue"), is_blocking)
-            max_sev = max(max_sev, severity_rank[sev])
-            if is_blocking:
-                max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
             path = str(raw.get("path", "")).strip()
             if not path:
                 raise SystemExit("Finding path must be a non-empty string")
             line_raw = raw.get("line")
             body = render_body(raw)
+            sev = str(raw.get("severity", "low")).lower()
+            if sev not in severity_rank:
+                raise SystemExit(f"Invalid finding severity: {sev}")
             for key in ("title", "evidence", "suggestion", "impact"):
                 if not str(raw.get(key, "")).strip():
                     raise SystemExit(f"Finding field '{key}' must be non-empty")
@@ -756,6 +753,13 @@ runs:
             except (TypeError, ValueError):
                 raise SystemExit(f"Finding line must be an integer-compatible value: {line_raw!r}")
             requested_line = line
+            tracking_issue, is_blocking, tracking_note = normalize_tracking_issue(raw.get("tracking_issue"), parse_blocking(raw.get("is_blocking")))
+            raw["tracking_issue"] = tracking_issue
+            if tracking_note:
+                body = "\n".join([body, f"補足: {tracking_note}"])
+            max_sev = max(max_sev, severity_rank[sev])
+            if is_blocking:
+                max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
 
             if sev == "low":
                 continue
