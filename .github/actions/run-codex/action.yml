@@ -359,10 +359,15 @@ runs:
 
         if [ -n "$CODEX_AUTH_JSON" ]; then
           # Base64 デコードして auth.json を配置
-          echo "$CODEX_AUTH_JSON" | base64 -d > "$AUTH_DIR/auth.json" || {
+          AUTH_TMP=$(mktemp)
+          if ! printf '%s' "$CODEX_AUTH_JSON" | base64 --decode > "$AUTH_TMP" 2>/dev/null \
+            && ! printf '%s' "$CODEX_AUTH_JSON" | base64 -d > "$AUTH_TMP" 2>/dev/null \
+            && ! printf '%s' "$CODEX_AUTH_JSON" | base64 -D > "$AUTH_TMP" 2>/dev/null; then
+            rm -f "$AUTH_TMP"
             echo "::error::codex_auth_json の Base64 デコードに失敗しました"
             exit 1
-          }
+          fi
+          mv "$AUTH_TMP" "$AUTH_DIR/auth.json"
           chmod 600 "$AUTH_DIR/auth.json"
           echo "auth_method=auth_json" >> $GITHUB_OUTPUT
           echo "Codex 認証: auth.json を使用"
