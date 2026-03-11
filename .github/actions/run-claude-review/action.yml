@@ -230,6 +230,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -448,6 +449,23 @@ runs:
         PY
 
         source .review-meta.env
+
+        if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
+          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          python3 <<'PY'
+        import json
+        from pathlib import Path
+
+        payload_path = Path(".review-payload.json")
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        body = str(payload.get("body", "")).strip()
+        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        payload["event"] = "COMMENT"
+        payload["body"] = f"{body}\n\n{note}" if body else note
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        PY
+          REVIEW_EVENT="COMMENT"
+        fi
 
         if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
           ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
@@ -526,6 +544,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -744,6 +763,23 @@ runs:
         PY
 
         source .review-meta.env
+
+        if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
+          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          python3 <<'PY'
+        import json
+        from pathlib import Path
+
+        payload_path = Path(".review-payload.json")
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        body = str(payload.get("body", "")).strip()
+        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        payload["event"] = "COMMENT"
+        payload["body"] = f"{body}\n\n{note}" if body else note
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        PY
+          REVIEW_EVENT="COMMENT"
+        fi
 
         if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
           ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
