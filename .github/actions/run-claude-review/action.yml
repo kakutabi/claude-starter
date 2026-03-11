@@ -754,6 +754,8 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.codex_github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
+        REVIEW_RUN_ID: ${{ github.run_id }}-review-1
+        REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
       run: |
         set -euo pipefail
 
@@ -833,11 +835,29 @@ runs:
                 return None
             return (path, line, title)
 
-        findings_data = json.loads(Path(".codex-review-findings.json").read_text(encoding="utf-8"))
+        findings_payload = json.loads(Path(".codex-review-findings.json").read_text(encoding="utf-8"))
         threads_data = json.loads(Path(".review-threads.json").read_text(encoding="utf-8"))
+        expected_run_id = os.environ["REVIEW_RUN_ID"]
+        expected_head_sha = os.environ["REVIEW_HEAD_SHA"]
+
+        if not isinstance(findings_payload, dict):
+            raise SystemExit("Structured review payload must be a JSON object for stale thread resolution")
+
+        generated_by_run_id = str(findings_payload.get("generated_by_run_id", "")).strip()
+        generated_for_head_sha = str(findings_payload.get("generated_for_head_sha", "")).strip()
+        if generated_by_run_id != expected_run_id:
+            raise SystemExit(
+                f"Structured review payload run mismatch during stale thread resolution: "
+                f"expected {expected_run_id}, got {generated_by_run_id or '<empty>'}"
+            )
+        if generated_for_head_sha != expected_head_sha:
+            raise SystemExit(
+                f"Structured review payload head SHA mismatch during stale thread resolution: "
+                f"expected {expected_head_sha}, got {generated_for_head_sha or '<empty>'}"
+            )
 
         active = set()
-        for item in findings_data.get("findings", []) or []:
+        for item in findings_payload.get("findings", []) or []:
             if not isinstance(item, dict):
                 continue
             if str(item.get("severity", "")).lower() == "low":
