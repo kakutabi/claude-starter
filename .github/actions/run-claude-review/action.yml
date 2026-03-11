@@ -337,6 +337,7 @@ runs:
         pr_number: ${{ inputs.pr_number }}
         head_ref: ${{ inputs.head_ref }}
         auto_commit: "false"
+        fail_on_error: "true"
 
     - name: Publish Codex review comments
       if: steps.resolve.outputs.mention_type == 'codex' && inputs.pr_number != ''
