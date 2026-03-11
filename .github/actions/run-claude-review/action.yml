@@ -312,6 +312,7 @@ runs:
             pass
 
         severity_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        nearest_line_threshold = 3
         comments = []
         fallback = []
         max_sev = 0
@@ -323,6 +324,12 @@ runs:
                 f"修正案: {item.get('suggestion', '').strip()}",
                 f"影響: {item.get('impact', '').strip()}",
             ])
+
+        def nearest_valid_line(path, requested_line):
+            valid = sorted(valid_right_lines.get(path, set()))
+            if not valid:
+                return None
+            return min(valid, key=lambda candidate: abs(candidate - requested_line))
 
         for raw in findings:
             if not isinstance(raw, dict):
@@ -354,8 +361,22 @@ runs:
             if line <= 0:
                 raise SystemExit(f"Finding line must be positive: {line}")
             if path in valid_right_lines and valid_right_lines[path] and line not in valid_right_lines[path]:
-                fallback.append(f"- [fallback:not_in_diff] `{path}:{line}`\n{body}")
-                continue
+                nearest = nearest_valid_line(path, line)
+                if nearest is not None and abs(nearest - line) <= nearest_line_threshold:
+                    body = "\n".join([
+                        body,
+                        "",
+                        f"補足: requested_line={line}, nearest_valid_line={nearest}",
+                    ])
+                    line = nearest
+                else:
+                    reason = "not_in_diff"
+                    detail = f"requested_line={line}"
+                    if nearest is not None:
+                        reason = "not_in_diff_out_of_range"
+                        detail = f"requested_line={line}, nearest_valid_line={nearest}"
+                    fallback.append(f"- [fallback:{reason}] `{path}:{line}`\n{detail}\n{body}")
+                    continue
 
             comments.append({
                 "path": path,
@@ -558,6 +579,7 @@ runs:
             pass
 
         severity_rank = {"low": 0, "medium": 1, "high": 2, "critical": 3}
+        nearest_line_threshold = 3
         comments = []
         fallback = []
         max_sev = 0
@@ -569,6 +591,12 @@ runs:
                 f"修正案: {item.get('suggestion', '').strip()}",
                 f"影響: {item.get('impact', '').strip()}",
             ])
+
+        def nearest_valid_line(path, requested_line):
+            valid = sorted(valid_right_lines.get(path, set()))
+            if not valid:
+                return None
+            return min(valid, key=lambda candidate: abs(candidate - requested_line))
 
         for raw in findings:
             if not isinstance(raw, dict):
@@ -600,8 +628,22 @@ runs:
             if line <= 0:
                 raise SystemExit(f"Finding line must be positive: {line}")
             if path in valid_right_lines and valid_right_lines[path] and line not in valid_right_lines[path]:
-                fallback.append(f"- [fallback:not_in_diff] `{path}:{line}`\n{body}")
-                continue
+                nearest = nearest_valid_line(path, line)
+                if nearest is not None and abs(nearest - line) <= nearest_line_threshold:
+                    body = "\n".join([
+                        body,
+                        "",
+                        f"補足: requested_line={line}, nearest_valid_line={nearest}",
+                    ])
+                    line = nearest
+                else:
+                    reason = "not_in_diff"
+                    detail = f"requested_line={line}"
+                    if nearest is not None:
+                        reason = "not_in_diff_out_of_range"
+                        detail = f"requested_line={line}, nearest_valid_line={nearest}"
+                    fallback.append(f"- [fallback:{reason}] `{path}:{line}`\n{detail}\n{body}")
+                    continue
 
             comments.append({
                 "path": path,
