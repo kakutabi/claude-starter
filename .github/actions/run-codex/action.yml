@@ -353,10 +353,12 @@ runs:
         CODEX_TOKEN: ${{ inputs.codex_code_oauth_token }}
         CODEX_AUTH_JSON: ${{ inputs.codex_auth_json }}
       run: |
+        AUTH_DIR="$HOME/.codex"
+        mkdir -p "$AUTH_DIR"
+        rm -f "$AUTH_DIR/auth.json"
+
         if [ -n "$CODEX_AUTH_JSON" ]; then
           # Base64 デコードして auth.json を配置
-          AUTH_DIR="$HOME/.codex"
-          mkdir -p "$AUTH_DIR"
           echo "$CODEX_AUTH_JSON" | base64 -d > "$AUTH_DIR/auth.json" || {
             echo "::error::codex_auth_json の Base64 デコードに失敗しました"
             exit 1
