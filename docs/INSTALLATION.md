@@ -161,6 +161,24 @@ base64 < ~/.codex/auth.json | tr -d '\n'
 
 > **Note**: `CODEX_CODE_OAUTH_TOKEN` は環境変数 `OPENAI_API_KEY` として Codex CLI に渡されます。`CODEX_AUTH_JSON` は `~/.codex/auth.json` にデコードして配置されます。
 
+#### Review 用 GitHub 認証（推奨）
+
+自動 review で `APPROVE`、line comment、stale review thread resolve まで有効にする場合は、GitHub App ベースの認証を推奨します。
+
+| シークレット名 | 説明 | 必須 |
+|---|---|---|
+| `CODEX_APP_ID` | review 用 GitHub App の App ID | 推奨 |
+| `CODEX_APP_PRIVATE_KEY` | review 用 GitHub App の秘密鍵（PEM） | 推奨 |
+| `CODEX_GITHUB_TOKEN` | 旧方式の PAT | GitHub App を使わない場合のみ |
+
+推奨 permissions:
+
+- Pull requests: `write`
+- Issues: `write`
+- Contents: `read`
+
+`CODEX_APP_ID` と `CODEX_APP_PRIVATE_KEY` が設定されていれば、`agent-review.yml` は GitHub App installation token を優先使用します。`CODEX_GITHUB_TOKEN` は移行期間の互換用です。
+
 ### 2. ワークフローのカスタマイズ
 
 `agent.yml` は、エージェントにコード生成や修正を指示するためのワークフローです。プロジェクトの技術スタックに合わせて、環境設定部分を編集してください。
@@ -254,6 +272,9 @@ base64 < ~/.codex/auth.json | tr -d '\n'
 | `claude_code_oauth_token` | Claude Code の OAuth トークン。 |
 | `codex_code_oauth_token` | Codex Code OAuth Token / API キー。 |
 | `codex_auth_json` | Codex 認証情報（`auth.json` の Base64 エンコード値）。 |
+| `codex_app_id` | review 用 GitHub App ID。設定時は review/approve に installation token を使用。 |
+| `codex_app_private_key` | review 用 GitHub App の秘密鍵（PEM 形式）。 |
+| `codex_github_token` | 旧方式の PAT。`codex_app_*` 未設定時の後方互換用。 |
 | `mention_type` | メンションの種類（`claude`, `codex`, `auto`）。デフォルト: `auto`（Claude 優先でフォールバック）。 |
 | `head_ref` | PR の head ブランチ名（Codex のブランチリンク表示に使用）。 |
 | `model` | レビューに使用するモデル (`haiku`, `sonnet`, `opus`)。 |
