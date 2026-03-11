@@ -754,7 +754,7 @@ runs:
       env:
         GH_TOKEN: ${{ inputs.codex_github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
-        REVIEW_RUN_ID: ${{ github.run_id }}-review-1
+        REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
       run: |
         set -euo pipefail
@@ -884,7 +884,7 @@ runs:
                 candidate = marker
             else:
                 author = normalize(((first.get("author") or {}).get("login")) or "")
-                if author and not (author == "github-actions[bot]" or author.endswith("[bot]")):
+                if author != "github-actions[bot]":
                     continue
                 path = str(first.get("path", "")).strip()
                 line = first.get("originalLine")
