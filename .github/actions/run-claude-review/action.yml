@@ -755,7 +755,7 @@ runs:
         GH_TOKEN: ${{ inputs.codex_github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
-        REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+        REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
       run: |
         set -euo pipefail
 
@@ -769,7 +769,7 @@ runs:
         REVIEW_AUTHOR_LOGINS="github-actions[bot]"
 
         if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
-          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ]; then
+          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ] && [[ "$BOT_LOGIN" == *"[bot]" ]]; then
             REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${BOT_LOGIN}"
           fi
         fi
