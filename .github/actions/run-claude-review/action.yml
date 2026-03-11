@@ -945,6 +945,7 @@ runs:
       shell: bash
       env:
         GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token }}
+        APP_SLUG: ${{ steps.app_token.outputs.app-slug }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -964,6 +965,10 @@ runs:
 
         if [ -n "${EXTRA_REVIEW_AUTHORS:-}" ]; then
           REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${EXTRA_REVIEW_AUTHORS}"
+        fi
+
+        if [ -n "${APP_SLUG:-}" ]; then
+          REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${APP_SLUG}[bot]"
         fi
 
         if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
