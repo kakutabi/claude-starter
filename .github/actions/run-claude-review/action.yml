@@ -482,6 +482,31 @@ runs:
 
         if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
           ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+          if [ "$REVIEW_EVENT" = "APPROVE" ] && printf '%s' "$ERR_MSG" | grep -q "Unprocessable Entity"; then
+            echo "::warning::APPROVE review が拒否されたため COMMENT にフォールバックします"
+            python3 <<'PY'
+        import json
+        from pathlib import Path
+
+        payload_path = Path(".review-payload.json")
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        body = str(payload.get("body", "")).strip()
+        note = "Note: APPROVE could not be submitted, so this result is posted as COMMENT."
+        payload["event"] = "COMMENT"
+        payload["body"] = f"{body}\n\n{note}" if body else note
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        PY
+            if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
+              REVIEW_EVENT="COMMENT"
+              : > .review-post.err
+            else
+              ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+            fi
+          fi
+        fi
+
+        if [ -f .review-post.err ] && [ -s .review-post.err ]; then
+          ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
           {
             echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
             echo
@@ -808,6 +833,31 @@ runs:
         fi
 
         if ! gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
+          ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+          if [ "$REVIEW_EVENT" = "APPROVE" ] && printf '%s' "$ERR_MSG" | grep -q "Unprocessable Entity"; then
+            echo "::warning::APPROVE review が拒否されたため COMMENT にフォールバックします"
+            python3 <<'PY'
+        import json
+        from pathlib import Path
+
+        payload_path = Path(".review-payload.json")
+        payload = json.loads(payload_path.read_text(encoding="utf-8"))
+        body = str(payload.get("body", "")).strip()
+        note = "Note: APPROVE could not be submitted, so this result is posted as COMMENT."
+        payload["event"] = "COMMENT"
+        payload["body"] = f"{body}\n\n{note}" if body else note
+        payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+        PY
+            if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/reviews" -X POST --input .review-payload.json >/dev/null 2>.review-post.err; then
+              REVIEW_EVENT="COMMENT"
+              : > .review-post.err
+            else
+              ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
+            fi
+          fi
+        fi
+
+        if [ -f .review-post.err ] && [ -s .review-post.err ]; then
           ERR_MSG=$(tr '\n' ' ' < .review-post.err | sed 's/[[:space:]]\+/ /g')
           {
             echo "⚠️ review API 投稿に失敗したため conversation にフォールバックしました。"
