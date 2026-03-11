@@ -404,6 +404,8 @@ runs:
 
         if max_sev >= severity_rank["high"]:
             review_event = "REQUEST_CHANGES"
+        elif max_sev >= severity_rank["medium"]:
+            review_event = "COMMENT"
         else:
             review_event = "APPROVE"
         payload = {
@@ -682,6 +684,8 @@ runs:
 
         if max_sev >= severity_rank["high"]:
             review_event = "REQUEST_CHANGES"
+        elif max_sev >= severity_rank["medium"]:
+            review_event = "COMMENT"
         else:
             review_event = "APPROVE"
         payload = {
