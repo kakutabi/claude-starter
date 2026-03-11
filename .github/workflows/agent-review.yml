@@ -25,18 +25,33 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
+      - name: Resolve trusted workflow ref
+        id: trusted_ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IS_SELF_TRUSTED_REPO: ${{ github.repository == 'kakutabi/claude-starter' || github.repository == 'Javakky/claude-starter' }}
+          PR_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+
+          if [ "$IS_SELF_TRUSTED_REPO" = "true" ]; then
+            DEFAULT_BRANCH=$(gh api "repos/$GITHUB_REPOSITORY" --jq .default_branch)
+            TRUSTED_SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/$DEFAULT_BRANCH" --jq .sha)
+          elif [ -n "$PR_BASE_SHA" ]; then
+            TRUSTED_SHA="$PR_BASE_SHA"
+          else
+            TRUSTED_SHA="$GITHUB_SHA"
+          fi
+
+          echo "sha=$TRUSTED_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Checkout trusted workflow actions
         id: trusted_checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ (github.repository == 'kakutabi/claude-starter' || github.repository == 'Javakky/claude-starter') && (github.event_name == 'pull_request' && github.event.pull_request.base.ref || github.ref_name) || (github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha) }}
+          ref: ${{ steps.trusted_ref.outputs.sha }}
           fetch-depth: 0
           path: .trusted-base
-
-      - name: Resolve trusted workflow SHA
-        id: trusted_ref
-        run: |
-          echo "sha=$(git -C .trusted-base rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare context
         id: prep
