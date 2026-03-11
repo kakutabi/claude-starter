@@ -261,7 +261,7 @@ runs:
         fallback_path = Path(".review-fallback.md")
         meta_path = Path(".review-meta.env")
 
-        required_keys = ("path", "line", "severity", "title", "evidence", "suggestion", "impact")
+        required_keys = ("path", "line", "severity", "is_blocking", "tracking_issue", "title", "evidence", "suggestion", "impact")
         try:
             data = json.loads(findings_path.read_text(encoding="utf-8"))
         except Exception as exc:
@@ -340,6 +340,18 @@ runs:
                 return False
             raise SystemExit(f"Finding is_blocking must be a boolean-compatible value: {raw_value!r}")
 
+        def validate_tracking_issue(raw_value, is_blocking):
+            value = str(raw_value or "").strip()
+            if is_blocking:
+                return value
+            if not value:
+                raise SystemExit("Non-blocking finding must include tracking_issue")
+            if re.fullmatch(r"#?\d+", value):
+                return value
+            if re.fullmatch(r"https://github\\.com/[^/]+/[^/]+/issues/\\d+", value):
+                return value
+            raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
+
         def render_body(item):
             return "\n".join([
                 f"問題: {item.get('title', '').strip()}",
@@ -375,6 +387,7 @@ runs:
             if sev not in severity_rank:
                 raise SystemExit(f"Invalid finding severity: {sev}")
             is_blocking = parse_blocking(raw.get("is_blocking"))
+            validate_tracking_issue(raw.get("tracking_issue"), is_blocking)
             max_sev = max(max_sev, severity_rank[sev])
             if is_blocking:
                 max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
@@ -575,7 +588,7 @@ runs:
         fallback_path = Path(".review-fallback.md")
         meta_path = Path(".review-meta.env")
 
-        required_keys = ("path", "line", "severity", "title", "evidence", "suggestion", "impact")
+        required_keys = ("path", "line", "severity", "is_blocking", "tracking_issue", "title", "evidence", "suggestion", "impact")
         try:
             data = json.loads(findings_path.read_text(encoding="utf-8"))
         except Exception as exc:
@@ -654,6 +667,18 @@ runs:
                 return False
             raise SystemExit(f"Finding is_blocking must be a boolean-compatible value: {raw_value!r}")
 
+        def validate_tracking_issue(raw_value, is_blocking):
+            value = str(raw_value or "").strip()
+            if is_blocking:
+                return value
+            if not value:
+                raise SystemExit("Non-blocking finding must include tracking_issue")
+            if re.fullmatch(r"#?\d+", value):
+                return value
+            if re.fullmatch(r"https://github\\.com/[^/]+/[^/]+/issues/\\d+", value):
+                return value
+            raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
+
         def render_body(item):
             return "\n".join([
                 f"問題: {item.get('title', '').strip()}",
@@ -689,6 +714,7 @@ runs:
             if sev not in severity_rank:
                 raise SystemExit(f"Invalid finding severity: {sev}")
             is_blocking = parse_blocking(raw.get("is_blocking"))
+            validate_tracking_issue(raw.get("tracking_issue"), is_blocking)
             max_sev = max(max_sev, severity_rank[sev])
             if is_blocking:
                 max_blocking_sev = max(max_blocking_sev, severity_rank[sev])
