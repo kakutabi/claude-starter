@@ -21,6 +21,10 @@ inputs:
     description: "Codex ボットユーザー専用の GitHub トークン（Codex が gh CLI で使用）。未指定時は github_token にフォールバック"
     required: false
     default: ""
+  allowed_review_authors:
+    description: "stale review thread 自動解決の対象とする review author login の追加 allowlist（カンマ区切り）"
+    required: false
+    default: ""
   mention_type:
     description: "メンションの種類（claude, codex, auto）。auto の場合は Claude 優先でトークンの有無によりフォールバック"
     required: false
@@ -756,6 +760,7 @@ runs:
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
+        EXTRA_REVIEW_AUTHORS: ${{ inputs.allowed_review_authors }}
       run: |
         set -euo pipefail
 
@@ -769,8 +774,12 @@ runs:
         REVIEW_AUTHOR_LOGINS="github-actions[bot]"
         export REPO_OWNER REPO_NAME
 
+        if [ -n "${EXTRA_REVIEW_AUTHORS:-}" ]; then
+          REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${EXTRA_REVIEW_AUTHORS}"
+        fi
+
         if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
-          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ] && [[ "$BOT_LOGIN" == *"[bot]" ]]; then
+          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ]; then
             REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${BOT_LOGIN}"
           fi
         fi
