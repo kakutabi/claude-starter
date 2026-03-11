@@ -30,5 +30,5 @@ echo >&2
 echo "Created: $AUTH_PATH" >&2
 echo "Register the following Base64 value as GitHub Secret CODEX_AUTH_JSON:" >&2
 echo >&2
-base64 -w 0 "$AUTH_PATH"
+base64 < "$AUTH_PATH" | tr -d '\n'
 echo

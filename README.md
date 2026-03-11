@@ -90,7 +90,7 @@ claude login
 
 - 一時ディレクトリを `HOME` にした隔離環境を作成
 - `codex login` を実行
-- 作成された `auth.json` を Base64 で標準出力に表示
+- 作成された `auth.json` を macOS / Linux 両対応の Base64 形式で標準出力に表示
 
 出力された Base64 文字列を GitHub Secret `CODEX_AUTH_JSON` に登録してください。
 

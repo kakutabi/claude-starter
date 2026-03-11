@@ -156,7 +156,7 @@ codex logout || true
 codex login
 
 # 4. 生成された auth.json を Base64 化して Secret に登録
-base64 -w 0 ~/.codex/auth.json
+base64 < ~/.codex/auth.json | tr -d '\n'
 ```
 
 > **Note**: `CODEX_CODE_OAUTH_TOKEN` は環境変数 `OPENAI_API_KEY` として Codex CLI に渡されます。`CODEX_AUTH_JSON` は `~/.codex/auth.json` にデコードして配置されます。

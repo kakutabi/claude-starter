@@ -33,6 +33,10 @@ inputs:
     description: "PR 番号（Codex の PR コンテキスト取得に使用）"
     required: false
     default: ""
+  trusted_actions_ref:
+    description: "信頼済み action 定義を checkout する ref"
+    required: false
+    default: ""
   head_sha:
     description: "PR の head SHA（成果物の freshness 検証に使用）"
     required: false
@@ -131,6 +135,14 @@ runs:
           .review-post.err \
           .review-comment.err \
           .review-meta.env
+
+    - name: Restore trusted nested actions
+      if: inputs.trusted_actions_ref != ''
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.trusted_actions_ref }}
+        fetch-depth: 0
+        path: .trusted-review-base
 
     - name: Resolve mention type
       id: resolve
@@ -437,7 +449,7 @@ runs:
 
     - name: Run Codex
       if: steps.resolve.outputs.mention_type == 'codex'
-      uses: ./.github/actions/run-codex
+      uses: ./.trusted-review-base/.github/actions/run-codex
       with:
         codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
         codex_auth_json: ${{ inputs.codex_auth_json }}
@@ -667,3 +679,111 @@ runs:
         if [ -s .review-fallback.md ]; then
           gh pr comment "$PR_NUMBER" --body-file .review-fallback.md >/dev/null || true
         fi
+
+    - name: Resolve obsolete review threads
+      if: inputs.pr_number != '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
+        PR_NUMBER: ${{ inputs.pr_number }}
+      run: |
+        set -euo pipefail
+
+        if [ ! -f .codex-review-findings.json ]; then
+          echo "skip: no structured findings to compare for thread resolution"
+          exit 0
+        fi
+
+        REPO_OWNER="${GITHUB_REPOSITORY%/*}"
+        REPO_NAME="${GITHUB_REPOSITORY#*/}"
+
+        gh api graphql \
+          -F owner="$REPO_OWNER" \
+          -F name="$REPO_NAME" \
+          -F number="$PR_NUMBER" \
+          -f query='
+            query($owner:String!, $name:String!, $number:Int!) {
+              repository(owner:$owner, name:$name) {
+                pullRequest(number:$number) {
+                  reviewThreads(first:100) {
+                    nodes {
+                      id
+                      isResolved
+                      comments(first:10) {
+                        nodes {
+                          author { login }
+                          path
+                          originalLine
+                          body
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          ' > .review-threads.json
+
+        python3 <<'PY' > .review-thread-ids.txt
+        import json
+        from pathlib import Path
+
+        def normalize(text):
+            return " ".join(str(text or "").strip().split())
+
+        def title_from_body(body):
+            for line in str(body or "").splitlines():
+                line = line.strip()
+                if line.startswith("問題:"):
+                    return normalize(line.split(":", 1)[1])
+            return ""
+
+        findings_data = json.loads(Path(".codex-review-findings.json").read_text(encoding="utf-8"))
+        threads_data = json.loads(Path(".review-threads.json").read_text(encoding="utf-8"))
+
+        active = set()
+        for item in findings_data.get("findings", []) or []:
+            if not isinstance(item, dict):
+                continue
+            if str(item.get("severity", "")).lower() == "low":
+                continue
+            path = str(item.get("path", "")).strip()
+            title = normalize(item.get("title", ""))
+            try:
+                line = int(item.get("line"))
+            except (TypeError, ValueError):
+                continue
+            if path and title and line > 0:
+                active.add((path, line, title))
+
+        nodes = (((threads_data.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("reviewThreads", {}).get("nodes", [])
+        for node in nodes:
+            if node.get("isResolved"):
+                continue
+            comments = ((node.get("comments") or {}).get("nodes") or [])
+            if not comments:
+                continue
+            first = comments[0]
+            author = (((first.get("author") or {}).get("login")) or "")
+            if "github-actions" not in author:
+                continue
+            path = str(first.get("path", "")).strip()
+            line = first.get("originalLine")
+            title = title_from_body(first.get("body", ""))
+            try:
+                line = int(line)
+            except (TypeError, ValueError):
+                continue
+            if not path or not title or line <= 0:
+                continue
+            if (path, line, title) in active:
+                continue
+            print(node["id"])
+        PY
+
+        while IFS= read -r thread_id; do
+          [ -z "$thread_id" ] && continue
+          gh api graphql \
+            -f query='mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}) { thread { id isResolved } } }' \
+            -F id="$thread_id" >/dev/null
+        done < .review-thread-ids.txt
