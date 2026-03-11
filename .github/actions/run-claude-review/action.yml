@@ -21,6 +21,14 @@ inputs:
     description: "Codex ボットユーザー専用の GitHub トークン（Codex が gh CLI で使用）。未指定時は github_token にフォールバック"
     required: false
     default: ""
+  codex_app_id:
+    description: "Codex 用 GitHub App ID（review 投稿を App token で行う場合に使用）"
+    required: false
+    default: ""
+  codex_app_private_key:
+    description: "Codex 用 GitHub App の秘密鍵（PEM 形式）"
+    required: false
+    default: ""
   allowed_review_authors:
     description: "stale review thread 自動解決の対象とする review author login の追加 allowlist（カンマ区切り）"
     required: false
@@ -73,6 +81,14 @@ inputs:
 runs:
   using: "composite"
   steps:
+    - name: Generate GitHub App token
+      if: inputs.codex_app_id != '' && inputs.codex_app_private_key != ''
+      id: app_token
+      uses: actions/create-github-app-token@v1
+      with:
+        app-id: ${{ inputs.codex_app_id }}
+        private-key: ${{ inputs.codex_app_private_key }}
+
     - name: Build normalized review prompt
       id: review_prompt
       shell: bash
@@ -229,8 +245,8 @@ runs:
       if: steps.resolve.outputs.mention_type == 'claude' && inputs.pr_number != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
-        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -466,7 +482,7 @@ runs:
         source .review-meta.env
 
         if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
-          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          echo "::warning::approve 用トークンが未設定のため APPROVE を COMMENT にフォールバックします"
           python3 <<'PY'
         import json
         from pathlib import Path
@@ -474,7 +490,7 @@ runs:
         payload_path = Path(".review-payload.json")
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         body = str(payload.get("body", "")).strip()
-        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        note = "Note: APPROVE requires an App token or bot token, so this result is posted as COMMENT."
         payload["event"] = "COMMENT"
         payload["body"] = f"{body}\n\n{note}" if body else note
         payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -571,6 +587,8 @@ runs:
         codex_auth_json: ${{ inputs.codex_auth_json }}
         github_token: ${{ inputs.github_token }}
         bot_github_token: ${{ inputs.codex_github_token }}
+        app_id: ${{ inputs.codex_app_id }}
+        app_private_key: ${{ inputs.codex_app_private_key }}
         prompt: ${{ steps.codex_prompt.outputs.content }}
         comment_body: ${{ inputs.comment_body }}
         issue_number: ""
@@ -583,8 +601,8 @@ runs:
       if: steps.resolve.outputs.mention_type == 'codex' && inputs.pr_number != ''
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
-        REVIEW_CAN_APPROVE: ${{ inputs.codex_github_token != '' && 'true' || 'false' }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token || inputs.github_token }}
+        REVIEW_CAN_APPROVE: ${{ (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && 'true' || 'false' }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -820,7 +838,7 @@ runs:
         source .review-meta.env
 
         if [ "$REVIEW_EVENT" = "APPROVE" ] && [ "$REVIEW_CAN_APPROVE" != "true" ]; then
-          echo "::warning::codex_github_token が未設定のため APPROVE を COMMENT にフォールバックします"
+          echo "::warning::approve 用トークンが未設定のため APPROVE を COMMENT にフォールバックします"
           python3 <<'PY'
         import json
         from pathlib import Path
@@ -828,7 +846,7 @@ runs:
         payload_path = Path(".review-payload.json")
         payload = json.loads(payload_path.read_text(encoding="utf-8"))
         body = str(payload.get("body", "")).strip()
-        note = "Note: APPROVE requires codex_github_token, so this result is posted as COMMENT."
+        note = "Note: APPROVE requires an App token or bot token, so this result is posted as COMMENT."
         payload["event"] = "COMMENT"
         payload["body"] = f"{body}\n\n{note}" if body else note
         payload_path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
@@ -905,10 +923,10 @@ runs:
         fi
 
     - name: Resolve obsolete review threads
-      if: inputs.pr_number != '' && inputs.codex_github_token != '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+      if: inputs.pr_number != '' && (steps.app_token.outputs.token != '' || inputs.codex_github_token != '') && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token }}
+        GH_TOKEN: ${{ steps.app_token.outputs.token || inputs.codex_github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
         REVIEW_RUN_ID: ${{ github.run_id }}-${{ github.job }}-${{ github.run_attempt }}
         REVIEW_HEAD_SHA: ${{ inputs.head_sha != '' && inputs.head_sha || github.sha }}
@@ -1110,8 +1128,8 @@ runs:
           fi
         done < .review-thread-ids.txt
 
-    - name: Skip obsolete review thread resolution without bot token
-      if: inputs.pr_number != '' && inputs.codex_github_token == '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+    - name: Skip obsolete review thread resolution without review token
+      if: inputs.pr_number != '' && steps.app_token.outputs.token == '' && inputs.codex_github_token == '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
       shell: bash
       run: |
-        echo "::warning::codex_github_token が未設定のため stale review thread の自動解決をスキップしました"
+        echo "::warning::review 用トークンが未設定のため stale review thread の自動解決をスキップしました"
