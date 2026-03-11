@@ -767,6 +767,7 @@ runs:
         REPO_OWNER="${GITHUB_REPOSITORY%/*}"
         REPO_NAME="${GITHUB_REPOSITORY#*/}"
         REVIEW_AUTHOR_LOGINS="github-actions[bot]"
+        export REPO_OWNER REPO_NAME
 
         if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
           if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ] && [[ "$BOT_LOGIN" == *"[bot]" ]]; then
@@ -776,32 +777,70 @@ runs:
 
         export REVIEW_AUTHOR_LOGINS
 
-        gh api graphql \
-          -F owner="$REPO_OWNER" \
-          -F name="$REPO_NAME" \
-          -F number="$PR_NUMBER" \
-          -f query='
-            query($owner:String!, $name:String!, $number:Int!) {
-              repository(owner:$owner, name:$name) {
-                pullRequest(number:$number) {
-                  reviewThreads(first:100) {
+        python3 <<'PY'
+        import json
+        import os
+        import subprocess
+        from pathlib import Path
+
+        owner = os.environ["REPO_OWNER"]
+        name = os.environ["REPO_NAME"]
+        number = os.environ["PR_NUMBER"]
+        query = """
+        query($owner:String!, $name:String!, $number:Int!, $after:String) {
+          repository(owner:$owner, name:$name) {
+            pullRequest(number:$number) {
+              reviewThreads(first:100, after:$after) {
+                nodes {
+                  id
+                  isResolved
+                  comments(first:10) {
                     nodes {
-                      id
-                      isResolved
-                      comments(first:10) {
-                        nodes {
-                          author { login }
-                          path
-                          originalLine
-                          body
-                        }
-                      }
+                      author { login }
+                      path
+                      originalLine
+                      body
                     }
                   }
                 }
+                pageInfo {
+                  hasNextPage
+                  endCursor
+                }
               }
             }
-          ' > .review-threads.json
+          }
+        }
+        """
+
+        nodes = []
+        cursor = None
+        while True:
+          cmd = [
+              "gh", "api", "graphql",
+              "-F", f"owner={owner}",
+              "-F", f"name={name}",
+              "-F", f"number={number}",
+              "-f", f"query={query}",
+          ]
+          if cursor:
+              cmd.extend(["-F", f"after={cursor}"])
+          result = subprocess.run(cmd, check=True, capture_output=True, text=True)
+          payload = json.loads(result.stdout)
+          connection = (((payload.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("reviewThreads") or {}
+          nodes.extend(connection.get("nodes") or [])
+          page_info = connection.get("pageInfo") or {}
+          if not page_info.get("hasNextPage"):
+              break
+          cursor = page_info.get("endCursor")
+          if not cursor:
+              break
+
+        Path(".review-threads.json").write_text(
+            json.dumps({"nodes": nodes}, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        PY
 
         python3 <<'PY' > .review-thread-ids.txt
         import base64
@@ -885,7 +924,7 @@ runs:
             if path and title and line > 0:
                 active.add((path, line, title))
 
-        nodes = (((threads_data.get("data") or {}).get("repository") or {}).get("pullRequest") or {}).get("reviewThreads", {}).get("nodes", [])
+        nodes = threads_data.get("nodes") or []
         for node in nodes:
             if node.get("isResolved"):
                 continue
