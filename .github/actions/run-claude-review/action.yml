@@ -884,7 +884,7 @@ runs:
 
         export REVIEW_AUTHOR_LOGINS
 
-        python3 <<'PY'
+        if ! python3 <<'PY'
         import json
         import os
         import subprocess
@@ -948,8 +948,12 @@ runs:
             encoding="utf-8",
         )
         PY
+        then
+          echo "::warning::reviewThreads の取得に失敗したため stale review thread の自動解決をスキップしました"
+          exit 0
+        fi
 
-        python3 <<'PY' > .review-thread-ids.txt
+        if ! python3 <<'PY' > .review-thread-ids.txt
         import base64
         import json
         import os
@@ -1061,6 +1065,10 @@ runs:
                 continue
             print(node["id"])
         PY
+        then
+          echo "::warning::stale review thread の照合に失敗したため自動解決をスキップしました"
+          exit 0
+        fi
 
         while IFS= read -r thread_id; do
           [ -z "$thread_id" ] && continue
