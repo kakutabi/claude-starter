@@ -523,7 +523,7 @@ runs:
         # App トークンまたは bot_github_token が利用可能な場合、push 時の認証を差し替える
         if [ -n "$PUSH_TOKEN" ]; then
           echo "::add-mask::${PUSH_TOKEN}"
-          AUTH_BASE64=$(echo -n "x-access-token:${PUSH_TOKEN}" | base64 -w 0)
+          AUTH_BASE64=$(printf '%s' "x-access-token:${PUSH_TOKEN}" | base64 | tr -d '\n')
           echo "::add-mask::${AUTH_BASE64}"
           git config --local http.https://github.com/.extraheader "AUTHORIZATION: basic ${AUTH_BASE64}"
           echo "push 認証を差し替えました（後続ワークフローのトリガーが有効化されます）"

@@ -738,6 +738,15 @@ runs:
 
         REPO_OWNER="${GITHUB_REPOSITORY%/*}"
         REPO_NAME="${GITHUB_REPOSITORY#*/}"
+        REVIEW_AUTHOR_LOGINS="github-actions[bot]"
+
+        if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
+          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ]; then
+            REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${BOT_LOGIN}"
+          fi
+        fi
+
+        export REVIEW_AUTHOR_LOGINS
 
         gh api graphql \
           -F owner="$REPO_OWNER" \
@@ -768,6 +777,7 @@ runs:
 
         python3 <<'PY' > .review-thread-ids.txt
         import json
+        import os
         import re
         from pathlib import Path
 
@@ -789,6 +799,11 @@ runs:
 
         findings_data = json.loads(Path(".codex-review-findings.json").read_text(encoding="utf-8"))
         threads_data = json.loads(Path(".review-threads.json").read_text(encoding="utf-8"))
+        allowed_authors = {
+            normalize(login)
+            for login in os.environ.get("REVIEW_AUTHOR_LOGINS", "").split(",")
+            if normalize(login)
+        }
 
         active = set()
         for item in findings_data.get("findings", []) or []:
@@ -813,8 +828,8 @@ runs:
             if not comments:
                 continue
             first = comments[0]
-            author = (((first.get("author") or {}).get("login")) or "")
-            if "github-actions" not in author:
+            author = normalize(((first.get("author") or {}).get("login")) or "")
+            if allowed_authors and author not in allowed_authors:
                 continue
             path = str(first.get("path", "")).strip()
             line = first.get("originalLine")
