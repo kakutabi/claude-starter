@@ -226,7 +226,7 @@ runs:
         try:
             files_data = json.loads(os.environ.get("PR_FILES_JSON", "[]"))
             for f in files_data:
-                p = f.get("path")
+                p = f.get("filename")
                 if p:
                     changed.add(p)
                 patch = f.get("patch")
@@ -370,7 +370,7 @@ runs:
           fi
         done < .review-comments.ndjson
 
-        if [ "${FALLBACK_COUNT:-0}" -gt 0 ] && [ -s .review-fallback.md ]; then
+        if [ -s .review-fallback.md ]; then
           gh pr comment "$PR_NUMBER" --body-file .review-fallback.md >/dev/null || true
         fi
 
@@ -450,7 +450,7 @@ runs:
         try:
             files_data = json.loads(os.environ.get("PR_FILES_JSON", "[]"))
             for f in files_data:
-                p = f.get("path")
+                p = f.get("filename")
                 if p:
                     changed.add(p)
                 patch = f.get("patch")
@@ -594,6 +594,6 @@ runs:
           fi
         done < .review-comments.ndjson
 
-        if [ "${FALLBACK_COUNT:-0}" -gt 0 ] && [ -s .review-fallback.md ]; then
+        if [ -s .review-fallback.md ]; then
           gh pr comment "$PR_NUMBER" --body-file .review-fallback.md >/dev/null || true
         fi
