@@ -210,6 +210,17 @@ runs:
           exit 1
         fi
 
+    - name: Select Codex action path
+      if: steps.resolve.outputs.mention_type == 'codex'
+      id: codex_action
+      shell: bash
+      run: |
+        ACTION_PATH="./.github/actions/run-codex"
+        if [ -f ".trusted-review-base/.github/actions/run-codex/action.yml" ]; then
+          ACTION_PATH="./.trusted-review-base/.github/actions/run-codex"
+        fi
+        echo "path=${ACTION_PATH}" >> "$GITHUB_OUTPUT"
+
     - name: Resolve Claude options
       if: steps.resolve.outputs.mention_type == 'claude'
       id: opts
@@ -581,7 +592,7 @@ runs:
 
     - name: Run Codex
       if: steps.resolve.outputs.mention_type == 'codex'
-      uses: ./.trusted-review-base/.github/actions/run-codex
+      uses: ${{ steps.codex_action.outputs.path }}
       with:
         codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
         codex_auth_json: ${{ inputs.codex_auth_json }}
