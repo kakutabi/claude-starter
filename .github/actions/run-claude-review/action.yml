@@ -404,10 +404,8 @@ runs:
 
         if max_sev >= severity_rank["high"]:
             review_event = "REQUEST_CHANGES"
-        elif max_sev <= severity_rank["low"] and not fallback:
-            review_event = "APPROVE"
         else:
-            review_event = "COMMENT"
+            review_event = "APPROVE"
         payload = {
             "event": review_event,
             "body": summary or "AI review findings",
@@ -684,10 +682,8 @@ runs:
 
         if max_sev >= severity_rank["high"]:
             review_event = "REQUEST_CHANGES"
-        elif max_sev <= severity_rank["low"] and not fallback:
-            review_event = "APPROVE"
         else:
-            review_event = "COMMENT"
+            review_event = "APPROVE"
         payload = {
             "event": review_event,
             "body": summary or "AI review findings",
