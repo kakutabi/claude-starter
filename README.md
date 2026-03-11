@@ -96,6 +96,24 @@ claude login
 
 > **Important**: CI 用に作った `auth.json` はローカルで使わないでください。ローカルと CI で同じ認証情報を共有すると `refresh_token_reused` が発生しやすくなります。
 
+#### Review/Approve 用 GitHub 認証
+
+PR review の `APPROVE`、line comment、stale thread resolve を安定して動かすには GitHub App を推奨します。
+
+| Name | 説明 |
+|------|------|
+| `CODEX_APP_ID` | review 用 GitHub App の App ID |
+| `CODEX_APP_PRIVATE_KEY` | review 用 GitHub App の秘密鍵（PEM） |
+| `CODEX_GITHUB_TOKEN` | 旧方式の PAT。GitHub App を使わない場合のみ |
+
+推奨権限:
+
+- Pull requests: `write`
+- Issues: `write`
+- Contents: `read`
+
+`CODEX_APP_ID` と `CODEX_APP_PRIVATE_KEY` が設定されている場合、review workflow は installation token を優先して使用します。`CODEX_GITHUB_TOKEN` は後方互換のため残し、未設定時のみフォールバック先として扱います。
+
 ### 4. 試してみる
 Issueを作成し、`@claude こんにちは！` とコメントして、Claudeが応答するか確認してみましょう。
 

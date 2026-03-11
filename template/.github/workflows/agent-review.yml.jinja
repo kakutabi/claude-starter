@@ -84,6 +84,8 @@ jobs:
           codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           codex_github_token: ${{ secrets.CODEX_GITHUB_TOKEN }}
+          codex_app_id: ${{ secrets.CODEX_APP_ID }}
+          codex_app_private_key: ${{ secrets.CODEX_APP_PRIVATE_KEY }}
 {% endraw %}          model: '{{ claude_model }}'
           max_turns: '{{ review_max_turns }}'
 {% raw %}          # prompt: '/review'
