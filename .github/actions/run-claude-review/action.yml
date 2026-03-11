@@ -348,7 +348,7 @@ runs:
                 raise SystemExit("Non-blocking finding must include tracking_issue")
             if re.fullmatch(r"#?\d+", value):
                 return value
-            if re.fullmatch(r"https://github\\.com/[^/]+/[^/]+/issues/\\d+", value):
+            if re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/\d+", value):
                 return value
             raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
 
@@ -675,7 +675,7 @@ runs:
                 raise SystemExit("Non-blocking finding must include tracking_issue")
             if re.fullmatch(r"#?\d+", value):
                 return value
-            if re.fullmatch(r"https://github\\.com/[^/]+/[^/]+/issues/\\d+", value):
+            if re.fullmatch(r"https://github\.com/[^/]+/[^/]+/issues/\d+", value):
                 return value
             raise SystemExit(f"tracking_issue must be an issue number or GitHub issue URL: {raw_value!r}")
 
