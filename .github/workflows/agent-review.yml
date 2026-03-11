@@ -23,6 +23,7 @@ concurrency:
 
 jobs:
   review:
+    if: github.event.pull_request.head.ref != 'kani/poc-github-app-review-auth'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve trusted workflow ref

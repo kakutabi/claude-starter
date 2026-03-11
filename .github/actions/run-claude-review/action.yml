@@ -210,17 +210,6 @@ runs:
           exit 1
         fi
 
-    - name: Select Codex action path
-      if: steps.resolve.outputs.mention_type == 'codex'
-      id: codex_action
-      shell: bash
-      run: |
-        ACTION_PATH="./.github/actions/run-codex"
-        if [ -f ".trusted-review-base/.github/actions/run-codex/action.yml" ]; then
-          ACTION_PATH="./.trusted-review-base/.github/actions/run-codex"
-        fi
-        echo "path=${ACTION_PATH}" >> "$GITHUB_OUTPUT"
-
     - name: Resolve Claude options
       if: steps.resolve.outputs.mention_type == 'claude'
       id: opts
@@ -590,9 +579,27 @@ runs:
         echo "$CODEX_PROMPT" >> $GITHUB_OUTPUT
         echo "${EOF_MARKER}" >> $GITHUB_OUTPUT
 
-    - name: Run Codex
-      if: steps.resolve.outputs.mention_type == 'codex'
-      uses: ${{ steps.codex_action.outputs.path }}
+    - name: Run Codex via trusted action
+      if: steps.resolve.outputs.mention_type == 'codex' && inputs.trusted_actions_ref != ''
+      uses: ./.trusted-review-base/.github/actions/run-codex
+      with:
+        codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
+        codex_auth_json: ${{ inputs.codex_auth_json }}
+        github_token: ${{ inputs.github_token }}
+        bot_github_token: ${{ inputs.codex_github_token }}
+        app_id: ${{ inputs.codex_app_id }}
+        app_private_key: ${{ inputs.codex_app_private_key }}
+        prompt: ${{ steps.codex_prompt.outputs.content }}
+        comment_body: ${{ inputs.comment_body }}
+        issue_number: ""
+        pr_number: ${{ inputs.pr_number }}
+        head_ref: ${{ inputs.head_ref }}
+        auto_commit: "false"
+        fail_on_error: "true"
+
+    - name: Run Codex via local action
+      if: steps.resolve.outputs.mention_type == 'codex' && inputs.trusted_actions_ref == ''
+      uses: ./.github/actions/run-codex
       with:
         codex_code_oauth_token: ${{ inputs.codex_code_oauth_token }}
         codex_auth_json: ${{ inputs.codex_auth_json }}
