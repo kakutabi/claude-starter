@@ -132,6 +132,25 @@ copier update --vcs-ref v1.0.0
 
 ---
 
+## Fork の upstream 同期
+
+この fork では `Javakky/claude-starter:master` を基準に、GitHub Actions で `master` を毎日同期します。
+
+### 同期方法
+
+- workflow: `.github/workflows/sync_upstream_master.yml`
+- 実行契機: 毎日 1 回の `schedule` と手動の `workflow_dispatch`
+- 更新方法: `upstream/master` に差分があれば `master` を `--force-with-lease` で置き換え
+
+### 運用上の注意
+
+- fork 独自のコミットが `master` にある場合でも、同期時に upstream の内容で上書きされます。
+- 維持したい変更は `master` ではなく feature branch と PR で管理してください。
+- 実行結果は GitHub Actions の job summary で確認できます。
+- 同期に失敗した場合は、workflow のログと summary に理由が残ります。
+
+---
+
 ## ローカルでのテスト
 
 ### 新規インストールのテスト

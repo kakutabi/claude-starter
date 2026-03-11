@@ -1,0 +1,82 @@
+name: Sync upstream master
+
+on:
+  schedule:
+    - cron: "17 0 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-master
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Sync master from upstream
+        run: |
+          set -euo pipefail
+
+          fail() {
+            reason="$1"
+            {
+              echo "## Upstream master sync"
+              echo
+              echo "- Status: failed"
+              echo "- Reason: ${reason}"
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          }
+
+          trap 'fail "Unexpected error during sync"' ERR
+
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/Javakky/claude-starter.git
+          else
+            git remote add upstream https://github.com/Javakky/claude-starter.git
+          fi
+
+          git fetch --no-tags origin master
+          git fetch --no-tags upstream master
+
+          origin_sha="$(git rev-parse origin/master)"
+          upstream_sha="$(git rev-parse upstream/master)"
+          counts="$(git rev-list --left-right --count origin/master...upstream/master)"
+          ahead_count="$(echo "$counts" | awk '{print $1}')"
+          behind_count="$(echo "$counts" | awk '{print $2}')"
+
+          {
+            echo "## Upstream master sync"
+            echo
+            echo "- Origin SHA: \`$origin_sha\`"
+            echo "- Upstream SHA: \`$upstream_sha\`"
+            echo "- Origin-only commits: $ahead_count"
+            echo "- Upstream-only commits: $behind_count"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$origin_sha" = "$upstream_sha" ]; then
+            echo "- Status: skipped" >> "$GITHUB_STEP_SUMMARY"
+            echo "master is already in sync with upstream/master"
+            exit 0
+          fi
+
+          git checkout -B master origin/master
+          git reset --hard upstream/master
+          git push --force-with-lease=refs/heads/master:"$origin_sha" origin HEAD:master
+
+          {
+            echo "- Status: completed"
+            echo "- Updated SHA: \`$upstream_sha\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          echo "master synced to upstream/master"
