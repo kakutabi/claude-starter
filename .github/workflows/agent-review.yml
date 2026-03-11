@@ -103,5 +103,6 @@ jobs:
           codex_code_oauth_token: ${{ secrets.CODEX_CODE_OAUTH_TOKEN }}
           codex_auth_json: ${{ secrets.CODEX_AUTH_JSON }}
           codex_github_token: ${{ secrets.CODEX_GITHUB_TOKEN }}
+          allowed_review_authors: ${{ vars.CODEX_REVIEW_AUTHOR_LOGINS }}
           model: 'opus'
           max_turns: '30'
