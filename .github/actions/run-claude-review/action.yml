@@ -723,10 +723,10 @@ runs:
         fi
 
     - name: Resolve obsolete review threads
-      if: inputs.pr_number != '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+      if: inputs.pr_number != '' && inputs.codex_github_token != '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
       shell: bash
       env:
-        GH_TOKEN: ${{ inputs.codex_github_token != '' && inputs.codex_github_token || inputs.github_token }}
+        GH_TOKEN: ${{ inputs.codex_github_token }}
         PR_NUMBER: ${{ inputs.pr_number }}
       run: |
         set -euo pipefail
@@ -833,7 +833,16 @@ runs:
 
         while IFS= read -r thread_id; do
           [ -z "$thread_id" ] && continue
-          gh api graphql \
+          if ! gh api graphql \
             -f query='mutation($id:ID!){ resolveReviewThread(input:{threadId:$id}) { thread { id isResolved } } }' \
-            -F id="$thread_id" >/dev/null
+            -F id="$thread_id" >/dev/null 2>.review-thread-resolve.err; then
+            ERR_MSG=$(tr '\n' ' ' < .review-thread-resolve.err | sed 's/[[:space:]]\+/ /g')
+            echo "::warning::resolveReviewThread failed for $thread_id: $ERR_MSG"
+          fi
         done < .review-thread-ids.txt
+
+    - name: Skip obsolete review thread resolution without bot token
+      if: inputs.pr_number != '' && inputs.codex_github_token == '' && (steps.resolve.outputs.mention_type == 'claude' || steps.resolve.outputs.mention_type == 'codex')
+      shell: bash
+      run: |
+        echo "::warning::codex_github_token が未設定のため stale review thread の自動解決をスキップしました"
