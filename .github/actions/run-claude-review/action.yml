@@ -766,6 +766,15 @@ runs:
 
         REPO_OWNER="${GITHUB_REPOSITORY%/*}"
         REPO_NAME="${GITHUB_REPOSITORY#*/}"
+        REVIEW_AUTHOR_LOGINS="github-actions[bot]"
+
+        if BOT_LOGIN=$(gh api user --jq .login 2>/dev/null); then
+          if [ -n "$BOT_LOGIN" ] && [ "$BOT_LOGIN" != "null" ]; then
+            REVIEW_AUTHOR_LOGINS="${REVIEW_AUTHOR_LOGINS},${BOT_LOGIN}"
+          fi
+        fi
+
+        export REVIEW_AUTHOR_LOGINS
 
         gh api graphql \
           -F owner="$REPO_OWNER" \
@@ -839,6 +848,11 @@ runs:
         threads_data = json.loads(Path(".review-threads.json").read_text(encoding="utf-8"))
         expected_run_id = os.environ["REVIEW_RUN_ID"]
         expected_head_sha = os.environ["REVIEW_HEAD_SHA"]
+        allowed_authors = {
+            normalize(login)
+            for login in os.environ.get("REVIEW_AUTHOR_LOGINS", "").split(",")
+            if normalize(login)
+        }
 
         if not isinstance(findings_payload, dict):
             raise SystemExit("Structured review payload must be a JSON object for stale thread resolution")
@@ -879,13 +893,13 @@ runs:
             if not comments:
                 continue
             first = comments[0]
+            author = normalize(((first.get("author") or {}).get("login")) or "")
+            if author not in allowed_authors:
+                continue
             marker = marker_from_body(first.get("body", ""))
             if marker is not None:
                 candidate = marker
             else:
-                author = normalize(((first.get("author") or {}).get("login")) or "")
-                if author != "github-actions[bot]":
-                    continue
                 path = str(first.get("path", "")).strip()
                 line = first.get("originalLine")
                 title = title_from_body(first.get("body", ""))
